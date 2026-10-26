@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { createFolder, type Folder, type Root } from '../api';
+import { createFolder, queueStoryboards, type Folder, type Root } from '../api';
 import { childFolders, folderName, libraryUrl, placeLabel, useFolders, useRoots } from '../places';
 import { DeleteFolderDialog } from './DeleteFolderDialog';
 import { useMoveDrop } from './dnd';
@@ -142,6 +142,22 @@ function Node({
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [error, setError] = useState('');
+  const [note, setNote] = useState('');
+
+  /** Queues every video in this folder and below it. */
+  async function storyboards() {
+    setNote('');
+    try {
+      const res = await queueStoryboards({
+        query: { rootId: root.id, folder: folder.path, recursive: true, kind: 'video' },
+      });
+      setNote(res.queued ? `${res.queued} storyboards queued` : 'All videos here already have one');
+      await queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    } catch (err) {
+      setNote((err as Error).message);
+    }
+    setTimeout(() => setNote(''), 3000);
+  }
 
   async function add() {
     const trimmed = name.trim();
@@ -190,7 +206,7 @@ function Node({
         </button>
         <Link
           to={libraryUrl({ rootId: root.id, folder: folder.path })}
-          className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-12"
+          className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-16"
           title={folder.path || root.path}
         >
           {depth === 0 ? (
@@ -209,6 +225,9 @@ function Node({
           {folder.total}
         </span>
         <div className="absolute right-1 flex opacity-0 transition group-hover/node:opacity-100 focus-within:opacity-100">
+          <IconButton label="Build storyboards for every video in here" onClick={() => void storyboards()}>
+            <path d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z" />
+          </IconButton>
           <IconButton label="New folder here" onClick={() => setAdding(true)}>
             <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
           </IconButton>
@@ -219,6 +238,12 @@ function Node({
           )}
         </div>
       </div>
+
+      {note && (
+        <p style={{ paddingLeft: depth * 12 + 20 }} className="py-0.5 text-[11px] text-muted">
+          {note}
+        </p>
+      )}
 
       {adding && (
         <div style={{ paddingLeft: depth * 12 + 20 }} className="py-1 pr-1">

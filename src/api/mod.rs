@@ -24,6 +24,7 @@ pub fn router(app: App) -> Router {
         .route("/api/media/move", post(media::bulk_move))
         .route("/api/media/{id}", get(media::get).patch(media::update).delete(media::delete))
         .route("/api/media/{id}/storyboard", get(media::storyboard).post(media::make_storyboard))
+        .route("/api/storyboards", post(media::queue_storyboards).delete(media::clear_storyboards))
         .route("/api/tags", get(media::tags))
         .route("/api/tags/suggest", get(media::suggest))
         .route("/api/upload", post(media::upload).layer(DefaultBodyLimit::disable()))

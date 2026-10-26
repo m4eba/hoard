@@ -246,6 +246,16 @@ export const deleteMedia = (id: number) => api.del<{ ok: boolean }>(`/api/media/
 
 export const requestStoryboard = (id: number) => api.post<Storyboard>(`/api/media/${id}/storyboard`);
 
+/**
+ * Queues storyboards for every video in a selection — a folder is a filter
+ * selection. Videos that already have one are skipped unless `rebuild`.
+ */
+export const queueStoryboards = (select: Selection, rebuild = false) =>
+  api.post<{ queued: number; skipped: number }>('/api/storyboards', { select, rebuild });
+
+/** Empties the storyboard queue; the video being built finishes. */
+export const clearStoryboards = () => api.del<{ cleared: number }>('/api/storyboards');
+
 export const suggestTags = (q: string, signal?: AbortSignal) =>
   fetch(`/api/tags/suggest?q=${encodeURIComponent(q)}`, { signal, credentials: 'same-origin' })
     .then((r) => (r.ok ? r.json() : { tags: [] }))

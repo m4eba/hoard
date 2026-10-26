@@ -12,6 +12,7 @@ mod process;
 mod scan;
 mod search;
 mod state;
+mod storyboards;
 mod web;
 mod ytdlp;
 
@@ -84,6 +85,7 @@ async fn serve() -> Result<()> {
     }
 
     tokio::spawn(process::worker(app.clone()));
+    tokio::spawn(storyboards::worker(app.clone()));
     tokio::spawn(imports::dispatcher(app.clone()));
     tokio::spawn(scan::scheduler(app.clone()));
     tokio::spawn(ytdlp::Ytdlp::updater(app.clone()));

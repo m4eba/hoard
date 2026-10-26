@@ -121,6 +121,14 @@ CREATE TABLE sessions (
     token      TEXT PRIMARY KEY,
     expires_at INTEGER NOT NULL
 );
+"#, r#"
+-- Videos waiting for a storyboard. A table rather than memory, so a large
+-- queue survives a restart.
+CREATE TABLE storyboard_queue (
+    media_id  INTEGER PRIMARY KEY REFERENCES media(id) ON DELETE CASCADE,
+    priority  INTEGER NOT NULL DEFAULT 0,
+    queued_at INTEGER NOT NULL
+);
 "#];
 
 #[derive(Clone)]

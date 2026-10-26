@@ -26,7 +26,9 @@ pub struct AppState {
     pub work: Notify,
     /// Roots being scanned, so a second request does not start a second walk.
     pub scanning: Mutex<HashSet<i64>>,
-    /// Media whose storyboard is being built.
+    /// Wakes the storyboard worker when its queue gains work.
+    pub storyboard_wake: Notify,
+    /// Media whose storyboard is being built right now.
     pub storyboards: Mutex<HashSet<i64>>,
     /// Media being moved, so two moves cannot race over the same file.
     pub moving: Mutex<HashSet<i64>>,
@@ -43,6 +45,7 @@ impl AppState {
             imports: Imports::new(cfg.downloads),
             ytdlp: Ytdlp::new(&cfg),
             work: Notify::new(),
+            storyboard_wake: Notify::new(),
             scanning: Default::default(),
             storyboards: Default::default(),
             moving: Default::default(),

@@ -24,6 +24,7 @@ use crate::{
     paths, process,
     search::{self, Filter},
     state::App,
+    storyboards,
 };
 
 #[derive(Deserialize)]
@@ -299,11 +300,17 @@ pub async fn upload(State(app): State<App>, Query(p): Query<UploadParams>, body:
 }
 
 async fn storyboard_state(app: &App, id: i64) -> ApiResult<Value> {
-    if app.storyboards.lock().unwrap().contains(&id) {
+    let (raw, queued): (Option<String>, bool) = app
+        .db
+        .run(move |c| {
+            let raw = c.query_row("SELECT storyboard FROM media WHERE id = ?", [id], |r| r.get(0))?;
+            Ok((raw, storyboards::is_queued(c, id)?))
+        })
+        .await?;
+    if queued || app.storyboards.lock().unwrap().contains(&id) {
         return Ok(json!({ "state": "pending" }));
     }
-    let raw: Option<String> = app.db.run(move |c| Ok(c.query_row("SELECT storyboard FROM media WHERE id = ?", [id], |r| r.get(0))?)).await?;
-    let sb = raw.and_then(|s| serde_json::from_str::<process::Storyboard>(&s).ok());
+    let sb = raw.and_then(|s| serde_json::from_str::<storyboards::Storyboard>(&s).ok());
     Ok(match sb {
         Some(sb) if process::storyboard_path(&app.cfg, id).exists() => {
             let mut v = serde_json::to_value(&sb)?;
@@ -319,8 +326,8 @@ pub async fn storyboard(State(app): State<App>, Path(id): Path<i64>) -> ApiResul
     Ok(Json(storyboard_state(&app, id).await?))
 }
 
-/// Builds the storyboard in the background; the viewer hears about it over
-/// the event stream.
+/// Queues one video's storyboard ahead of any bulk work; the viewer hears
+/// it is ready over the event stream.
 pub async fn make_storyboard(State(app): State<App>, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
     let kind: Option<String> = app
         .db
@@ -334,18 +341,38 @@ pub async fn make_storyboard(State(app): State<App>, Path(id): Path<i64>) -> Api
         Some("video") => {}
         Some(_) => return Err(bad_request("storyboards are for videos").into()),
     }
-    if app.storyboards.lock().unwrap().insert(id) {
-        let app = app.clone();
-        tokio::spawn(async move {
-            let result = process::build_storyboard(&app, id).await;
-            app.storyboards.lock().unwrap().remove(&id);
-            if let Err(e) = &result {
-                tracing::warn!("storyboard for {id}: {e:#}");
-            }
-            app.events.send(Event::Storyboard { id, ready: result.is_ok() });
-        });
-    }
+    // Asking again for one that exists means "rebuild it".
+    app.db.run(move |c| storyboards::enqueue(c, &[id], storyboards::PRIORITY_VIEWER, true)).await?;
+    app.storyboard_wake.notify_one();
     Ok(Json(json!({ "state": "pending" })))
+}
+
+#[derive(Deserialize)]
+pub struct QueueStoryboards {
+    select: media::Selection,
+    #[serde(default)]
+    rebuild: bool,
+}
+
+/// Queues storyboards for every video in a selection — hand-picked, or a
+/// whole folder through a filter. Images and videos that already have one
+/// are skipped unless `rebuild` is set.
+pub async fn queue_storyboards(State(app): State<App>, Json(body): Json<QueueStoryboards>) -> ApiResult<Json<Value>> {
+    let (queued, selected) = app
+        .db
+        .run(move |c| {
+            let ids = media::resolve(c, &body.select)?;
+            let n = storyboards::enqueue(c, &ids, storyboards::PRIORITY_BULK, body.rebuild)?;
+            Ok((n, ids.len()))
+        })
+        .await?;
+    app.storyboard_wake.notify_one();
+    Ok(Json(json!({ "queued": queued, "skipped": selected - queued })))
+}
+
+pub async fn clear_storyboards(State(app): State<App>) -> ApiResult<Json<Value>> {
+    let cleared = app.db.run(|c| storyboards::clear(c)).await?;
+    Ok(Json(json!({ "cleared": cleared })))
 }
 
 async fn serve(path: std::path::PathBuf, req: Request, cache: &'static str) -> ApiResult<Response> {

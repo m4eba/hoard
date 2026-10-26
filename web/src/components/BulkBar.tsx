@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { bulkDelete, bulkRestore, bulkUpdate, moveMedia, type BulkEdit, type Place, type TagState } from '../api';
+import {
+  bulkDelete,
+  bulkRestore,
+  bulkUpdate,
+  moveMedia,
+  queueStoryboards,
+  type BulkEdit,
+  type Place,
+  type TagState,
+} from '../api';
 import { FolderInput } from './FolderInput';
 import { TagInput } from './TagInput';
 import type { SelectionState } from './useSelection';
@@ -79,6 +88,26 @@ export function BulkBar({
       setUndo(null);
       setStatus(`Moving ${res.count} file${res.count === 1 ? '' : 's'}…`);
       selection.clear();
+      await queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    } catch (err) {
+      setStatus((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function storyboards() {
+    setBusy(true);
+    setStatus('');
+    try {
+      const res = await queueStoryboards(selection.selection);
+      setUndo(null);
+      setStatus(
+        res.queued === 0
+          ? 'Every selected video already has a storyboard'
+          : `${res.queued} storyboard${res.queued === 1 ? '' : 's'} queued` +
+              (res.skipped ? ` · ${res.skipped} skipped (images, or already built)` : ''),
+      );
       await queryClient.invalidateQueries({ queryKey: ['tasks'] });
     } catch (err) {
       setStatus((err as Error).message);
@@ -178,6 +207,15 @@ export function BulkBar({
               onCommit={(place) => place && void move(place)}
             />
           </div>
+
+          <button
+            onClick={() => void storyboards()}
+            disabled={busy}
+            title="Queue storyboards for the selected videos"
+            className="rounded-md border border-edge px-3 py-1.5 text-sm hover:bg-edge disabled:opacity-40"
+          >
+            Storyboards
+          </button>
 
           <button
             onClick={() => setConfirming(true)}

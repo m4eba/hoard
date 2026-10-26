@@ -25,6 +25,11 @@ directory.
   controls with no overlay on pause, keyboard shortcuts, screenshots of the
   view or a region, and storyboards — a frame preview on the scrubber and a
   grid of the whole video — generated on request.
+- **Storyboard queue.** Queue storyboards for a selection from the bulk bar,
+  or for a whole folder (subfolders included) from its sidebar menu. The queue
+  lives in the database, survives restarts, skips videos that already have
+  one, and can be cancelled from the activity menu; a video opened in the
+  viewer jumps the queue.
 - **Optional password.** No accounts; set a password and every request needs
   a session.
 

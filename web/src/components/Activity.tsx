@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getTasks } from '../api';
+import { clearStoryboards, getTasks } from '../api';
 
 /**
  * Background work in progress — scans, moves, storyboards, yt-dlp updates —
@@ -65,6 +65,15 @@ export function Activity() {
                       style={pct === null ? undefined : { width: `${pct}%` }}
                     />
                   </div>
+                )}
+                {t.kind === 'storyboards' && t.state === 'running' && (
+                  <button
+                    onClick={() => void clearStoryboards()}
+                    className="mt-1 text-[11px] text-muted underline hover:text-white"
+                    title="Clears the queue; the video being built finishes"
+                  >
+                    Cancel the rest
+                  </button>
                 )}
                 {t.detail && (
                   <p
