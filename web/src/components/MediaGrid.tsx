@@ -3,6 +3,7 @@ import { formatDate } from '../format';
 import { formatBytes, formatDuration, type Folder, type ListItem } from '../api';
 import { folderName, libraryUrl } from '../places';
 import { startMediaDrag, useMoveDrop } from './dnd';
+import { PreviewFrame, StoryboardBadge, useHoverPreview } from './TilePreview';
 import type { ViewMode } from './viewMode';
 import type { SelectionState } from './useSelection';
 
@@ -127,6 +128,8 @@ function Tile({
   const limit = large ? VISIBLE_TAGS + 2 : VISIBLE_TAGS;
   const shown = tags.slice(0, limit);
   const hidden = tags.length - shown.length;
+  const preview = useHoverPreview(item.storyboard);
+  const previewing = preview.ready && preview.frame !== null;
 
   return (
     // A plain container, not a link: the tag chips are links themselves, and
@@ -146,7 +149,7 @@ function Tile({
         draggable
         onDragStart={onDragStart}
       >
-        <div className="flex aspect-video items-center justify-center bg-black/40">
+        <div className="relative flex aspect-video items-center justify-center bg-black/40" {...preview.handlers}>
           {item.thumbUrl ? (
             <img
               src={item.thumbUrl}
@@ -162,13 +165,8 @@ function Tile({
             // placeholder is better than a broken image.
             <span className="text-xs text-muted">{item.kind === 'video' ? 'no preview' : item.filename}</span>
           )}
+          {previewing && <PreviewFrame storyboard={preview.ready!} frame={preview.frame!} />}
         </div>
-
-        {item.kind === 'video' && (
-          <span className="absolute top-1.5 right-1.5 rounded bg-black/70 px-1.5 py-0.5 text-[11px] tabular-nums text-white/90">
-            {formatDuration(item.duration)}
-          </span>
-        )}
 
         {item.title && (
           // Both the title and the tick appear on hover, and both live at the
@@ -184,7 +182,20 @@ function Tile({
         )}
       </Link>
 
-      {shown.length > 0 && (
+      {/* Outside the link, so the storyboard button is not a button inside an
+          anchor; the duration lets clicks fall through to the link. */}
+      {item.kind === 'video' && !previewing && (
+        <div className="pointer-events-none absolute top-1.5 right-1.5 flex items-center gap-1">
+          <span className="pointer-events-auto">
+            <StoryboardBadge item={item} />
+          </span>
+          <span className="rounded bg-black/70 px-1.5 py-0.5 text-[11px] tabular-nums text-white/90">
+            {formatDuration(item.duration)}
+          </span>
+        </div>
+      )}
+
+      {shown.length > 0 && !previewing && (
         // Outside the link above, so each chip is its own navigation target.
         // nowrap with clipping, so the row can never grow to a second line
         // however long a tag is; each chip is capped and truncated, and the

@@ -24,6 +24,9 @@ pub struct ListItem {
     pub thumb_url: Option<String>,
     pub tags: Vec<String>,
     pub created_at: String,
+    /// Videos only: whether a storyboard exists, is queued, or neither —
+    /// what the grid's hover preview and its "none yet" icon go by.
+    pub storyboard: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -70,7 +73,8 @@ impl MediaFile {
 
 const COLUMNS: &str = "m.id, m.kind, m.title, m.filename, m.root_id, m.folder, m.width, m.height,
     m.duration, m.size, m.thumb_ver, m.added_at,
-    (SELECT group_concat(tag, char(31)) FROM media_tags t WHERE t.media_id = m.id)";
+    (SELECT group_concat(tag, char(31)) FROM media_tags t WHERE t.media_id = m.id),
+    m.storyboard, EXISTS (SELECT 1 FROM storyboard_queue q WHERE q.media_id = m.id)";
 
 pub fn iso(ts: i64) -> String {
     chrono::DateTime::from_timestamp(ts, 0).map(|d| d.to_rfc3339()).unwrap_or_default()
@@ -82,12 +86,18 @@ pub fn thumb_url(id: i64, ver: i64) -> Option<String> {
 
 fn list_item(r: &Row) -> rusqlite::Result<ListItem> {
     let id: i64 = r.get(0)?;
+    let kind: String = r.get(1)?;
+    let storyboard = (kind == "video").then(|| -> rusqlite::Result<_> {
+        let raw: Option<String> = r.get(13)?;
+        Ok(crate::storyboards::state_json(id, raw.as_deref(), r.get(14)?))
+    });
+    let storyboard = storyboard.transpose()?;
     let tags: Option<String> = r.get(12)?;
     let mut tags: Vec<String> = tags.map(|t| t.split('\u{1f}').map(String::from).collect()).unwrap_or_default();
     tags.sort();
     Ok(ListItem {
         id,
-        kind: r.get(1)?,
+        kind,
         title: r.get(2)?,
         filename: r.get(3)?,
         root_id: r.get(4)?,
@@ -99,6 +109,7 @@ fn list_item(r: &Row) -> rusqlite::Result<ListItem> {
         thumb_url: thumb_url(id, r.get(10)?),
         tags,
         created_at: iso(r.get(11)?),
+        storyboard,
     })
 }
 
@@ -158,13 +169,13 @@ pub fn get(conn: &Connection, id: i64) -> Result<Option<Detail>> {
             Ok(Detail {
                 url: format!("/f/{}", item.id),
                 mime,
-                description: r.get(13)?,
-                source_url: r.get(14)?,
-                video_codec: r.get(15)?,
-                audio_codec: r.get(16)?,
-                root_name: r.get(17)?,
-                file_modified_at: iso(r.get(18)?),
-                processed: r.get(19)?,
+                description: r.get(15)?,
+                source_url: r.get(16)?,
+                video_codec: r.get(17)?,
+                audio_codec: r.get(18)?,
+                root_name: r.get(19)?,
+                file_modified_at: iso(r.get(20)?),
+                processed: r.get(21)?,
                 item,
             })
         })

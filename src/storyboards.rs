@@ -37,6 +37,23 @@ pub struct Storyboard {
     pub ver: i64,
 }
 
+/// The storyboard as the API shows it: `{ state: "none" | "pending" }`, or
+/// `{ state: "ready", url, … }` with the sheet's geometry.
+pub fn state_json(id: i64, raw: Option<&str>, pending: bool) -> serde_json::Value {
+    if pending {
+        return serde_json::json!({ "state": "pending" });
+    }
+    match raw.and_then(|s| serde_json::from_str::<Storyboard>(s).ok()) {
+        Some(sb) => {
+            let mut v = serde_json::to_value(&sb).unwrap_or_default();
+            v["state"] = "ready".into();
+            v["url"] = format!("/s/{id}?v={}", sb.ver).into();
+            v
+        }
+        None => serde_json::json!({ "state": "none" }),
+    }
+}
+
 const COLS: u32 = 10;
 const MAX_FRAMES: u32 = 100;
 const TILE_WIDTH: u32 = 160;

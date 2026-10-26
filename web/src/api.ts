@@ -87,6 +87,8 @@ export type ListItem = {
   thumbUrl?: string;
   tags: string[];
   createdAt: string;
+  /** Videos only. */
+  storyboard?: Storyboard;
 };
 
 export type Storyboard =

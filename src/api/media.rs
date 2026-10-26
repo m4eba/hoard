@@ -307,19 +307,10 @@ async fn storyboard_state(app: &App, id: i64) -> ApiResult<Value> {
             Ok((raw, storyboards::is_queued(c, id)?))
         })
         .await?;
-    if queued || app.storyboards.lock().unwrap().contains(&id) {
-        return Ok(json!({ "state": "pending" }));
-    }
-    let sb = raw.and_then(|s| serde_json::from_str::<storyboards::Storyboard>(&s).ok());
-    Ok(match sb {
-        Some(sb) if process::storyboard_path(&app.cfg, id).exists() => {
-            let mut v = serde_json::to_value(&sb)?;
-            v["state"] = "ready".into();
-            v["url"] = format!("/s/{id}?v={}", sb.ver).into();
-            v
-        }
-        _ => json!({ "state": "none" }),
-    })
+    let building = app.storyboards.lock().unwrap().contains(&id);
+    // A sheet whose file has gone missing reads as none, so it can be rebuilt.
+    let raw = raw.filter(|_| process::storyboard_path(&app.cfg, id).exists());
+    Ok(storyboards::state_json(id, raw.as_deref(), queued || building))
 }
 
 pub async fn storyboard(State(app): State<App>, Path(id): Path<i64>) -> ApiResult<Json<Value>> {

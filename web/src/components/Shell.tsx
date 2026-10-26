@@ -131,6 +131,9 @@ function useLibraryEvents() {
         break;
       case 'storyboard':
         void queryClient.invalidateQueries({ queryKey: ['media-item', e.id] });
+        // Grids show whether one exists; coalesced, since a queued folder
+        // finishes a stream of them.
+        refreshLibrary(queryClient);
         break;
     }
   });
