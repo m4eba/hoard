@@ -204,6 +204,16 @@ UPDATE media SET storyboard = json_set(storyboard, '$.ver', json_extract(storybo
 -- Images ffmpeg could not decode (animated WebP before FFmpeg 8) now have a
 -- fallback; give the ones left without a thumbnail another pass.
 UPDATE media SET processed = 0 WHERE kind = 'image' AND thumb_ver = 0;
+"#, r#"
+-- Access granted to fiffly over OAuth. Only a hash of each token is kept.
+CREATE TABLE api_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_hash TEXT NOT NULL UNIQUE,
+    client TEXT NOT NULL,
+    scopes TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    last_used INTEGER
+);
 "#];
 
 #[derive(Clone)]

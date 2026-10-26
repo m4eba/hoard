@@ -172,6 +172,11 @@ export type Settings = {
   ytdlpArgs: string;
   defaultYtdlpArgs: string;
   trashDays: number;
+  fifflyUrl: string;
+  defaultFifflyUrl: string;
+  /** The address fiffly reaches hoard at; null means this browser's. */
+  fifflySite: string | null;
+  fifflyPlace: Place | null;
 };
 
 /** What the server pushes over /api/events. */
@@ -323,7 +328,13 @@ export const retryJob = (batchId: string, jobId: number) =>
 
 export const getTasks = () => api.get<{ tasks: Task[] }>('/api/tasks');
 export const getSettings = () => api.get<Settings>('/api/settings');
-export const saveSettings = (body: { downloadPlace?: Place | null; ytdlpArgs?: string }) =>
+export const saveSettings = (body: {
+  downloadPlace?: Place | null;
+  ytdlpArgs?: string;
+  fifflyUrl?: string;
+  fifflySite?: string | null;
+  fifflyPlace?: Place | null;
+}) =>
   api.put<Settings>('/api/settings', body);
 export const getYtdlp = () => api.get<YtdlpStatus>('/api/ytdlp');
 export const installYtdlp = () => api.post<{ ok: boolean }>('/api/ytdlp/install');

@@ -34,6 +34,10 @@ directory.
   lives in the database, survives restarts, skips videos that already have
   one, and can be cancelled from the activity menu; a video opened in the
   viewer jumps the queue.
+- **fiffly integration.** Open any video or image in the
+  [fiffly](https://fiffly.com) browser editor from the viewer or a tile's ⋯
+  menu, browse the library from inside fiffly, and save its exports back into
+  a folder.
 - **Optional password.** No accounts; set a password and every request needs
   a session.
 
@@ -107,6 +111,28 @@ every browser can play.
 Downloads go to the folder chosen on the import page, the default download
 folder from Settings, or the first storage folder. yt-dlp's metadata is kept
 as `<data>/meta/<id>.info.json`.
+
+### fiffly
+
+fiffly runs entirely in the browser and talks to hoard over its media-publish
+protocol. **Open in fiffly** links (viewer toolbar, ⋯ menu on tiles) carry a
+link signed for about six hours and work without any setup. To browse the
+library from fiffly and save exports into it, use **Settings → fiffly → Add
+hoard to fiffly**: fiffly asks you to confirm, then to connect, which brings
+you to a consent page in hoard. Connections are listed, and can be revoked, in
+Settings.
+
+Because fiffly runs in your browser, it reaches hoard at the address the
+browser uses. fiffly accepts `https://` sites, or `http://` only on this
+computer (`localhost`, `127.0.0.1`) — a LAN address like
+`http://192.168.1.10:8150` won't work; put hoard behind https (a reverse
+proxy) and enter that address in Settings. Chrome asks once whether fiffly
+may access devices on your local network; allow it. A self-hosted fiffly can
+be set as the fiffly address; only that address may request access.
+
+What fiffly can reach: the manifest at `/.well-known/media-publish.json`, and
+`/api/oauth/*` and `/api/publish/*`, which answer CORS for any origin and are
+authorised by the token or the URL's signature, not the session cookie.
 
 ## How files are handled
 

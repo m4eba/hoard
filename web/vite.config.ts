@@ -15,6 +15,7 @@ export default defineConfig({
       '/f': { target: api, changeOrigin: true },
       '/t': { target: api, changeOrigin: true },
       '/s': { target: api, changeOrigin: true },
+      '/.well-known': { target: api, changeOrigin: true },
     },
   },
 });

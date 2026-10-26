@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getMedia, requestStoryboard, type Media } from '../api';
+import { useFifflyLink } from '../fiffly';
 import { useZoomPan } from './useZoomPan';
 import { VideoControls } from './VideoControls';
 import { MediaDetails } from './MediaDetails';
@@ -76,6 +77,7 @@ function Stage({ media: item }: { media: Media }) {
   const media = useRef<Drawable | null>(null);
   const { stageRef, layerRef, handlers } = useZoomPan();
 
+  const fiffly = useFifflyLink(item.id);
   const [selecting, setSelecting] = useState(false);
   const [shot, setShot] = useState<{ blob: Blob; name: string } | null>(null);
   const [error, setError] = useState('');
@@ -300,6 +302,21 @@ function Stage({ media: item }: { media: Media }) {
               <path d="M7 2h2v3H7V2zm0 17h2v3H7v-3zM2 7h3v2H2V7zm17 0h3v2h-3V7zM2 15h3v2H2v-2zm17 0h3v2h-3v-2zM15 2h2v3h-2V2zm0 17h2v3h-2v-3zM7 7h10v10H7V7z" />
             </svg>
           </ToolButton>
+          {fiffly && (
+            <a
+              href={fiffly}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              aria-label="Open in fiffly"
+              title="Open in fiffly"
+              className={toolClass}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M9.64 7.64a3 3 0 1 0-1.27 1.54L10.59 12l-2.22 2.82a3 3 0 1 0 1.27 1.54L12 13.4l7 8.6h3v-1L9.64 7.64zM7 8a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm0 10a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm6.4-9.3L19 2h3v1l-6.2 7.6-2.4-1.9z" />
+              </svg>
+            </a>
+          )}
         </div>
       )}
 
@@ -332,6 +349,8 @@ function Stage({ media: item }: { media: Media }) {
   );
 }
 
+const toolClass = 'rounded-full bg-black/50 p-2 text-white/90 backdrop-blur hover:bg-black/70';
+
 function ToolButton({
   onClick,
   label,
@@ -350,7 +369,7 @@ function ToolButton({
       }}
       aria-label={label}
       title={label}
-      className="rounded-full bg-black/50 p-2 text-white/90 backdrop-blur hover:bg-black/70"
+      className={toolClass}
     >
       {children}
     </button>

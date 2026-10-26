@@ -9,6 +9,7 @@ mod media;
 mod ops;
 mod paths;
 mod process;
+mod publish;
 mod scan;
 mod search;
 mod state;

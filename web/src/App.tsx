@@ -7,6 +7,7 @@ import { Library, SearchResults } from './routes/Library';
 import { ImportBatch } from './routes/ImportBatch';
 import { ImportPage } from './routes/ImportPage';
 import { Login } from './routes/Login';
+import { OAuthConsent } from './routes/OAuthConsent';
 import { Settings } from './routes/Settings';
 import { Viewer } from './viewer/Viewer';
 
@@ -52,6 +53,9 @@ export function App() {
       {/* The viewer is a full-screen overlay route, so Escape returns to
           whatever grid was underneath rather than to a fixed page. */}
       <Route path="/m/:id" element={<Viewer />} />
+
+      {/* Where fiffly sends you to connect: a page of its own, no app chrome. */}
+      <Route path="/oauth/authorize" element={<OAuthConsent />} />
 
       <Route path="*" element={<Navigate to="/library" replace />} />
     </Routes>

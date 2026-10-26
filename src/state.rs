@@ -11,6 +11,7 @@ use crate::{
     db::Db,
     events::{Events, Tasks},
     imports::Imports,
+    publish::Publish,
     ytdlp::Ytdlp,
 };
 
@@ -22,6 +23,8 @@ pub struct AppState {
     pub auth: Auth,
     pub imports: Imports,
     pub ytdlp: Ytdlp,
+    /// fiffly's signing key and pending authorization codes.
+    pub publish: Publish,
     /// Wakes the probe and thumbnail worker when new media arrive.
     pub work: Notify,
     /// Roots being scanned, so a second request does not start a second walk.
@@ -44,6 +47,7 @@ impl AppState {
             auth: Auth::new(cfg.password.clone()),
             imports: Imports::new(cfg.downloads),
             ytdlp: Ytdlp::new(&cfg),
+            publish: Publish::default(),
             work: Notify::new(),
             storyboard_wake: Notify::new(),
             scanning: Default::default(),

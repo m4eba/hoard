@@ -18,31 +18,21 @@ import { DirectoryPicker } from '../components/DirectoryPicker';
 import { FolderInput } from '../components/FolderInput';
 import { formatDateTime, formatRelative, locale, setLocale } from '../format';
 import { useRoots } from '../places';
+import { FifflySection } from './FifflySettings';
+import { button, input, Section } from './settingsUi';
 
 export function Settings({ version }: { version: string }) {
   return (
     <div className="mx-auto max-w-3xl space-y-8 pb-12">
       <StorageSection />
       <DownloadSection />
+      <FifflySection />
       <TrashSection />
       <DisplaySection />
       <p className="text-xs text-muted">hoard {version}</p>
     </div>
   );
 }
-
-function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <section>
-      <h2 className="text-base font-semibold">{title}</h2>
-      {hint && <p className="mt-0.5 text-sm text-muted">{hint}</p>}
-      <div className="mt-3">{children}</div>
-    </section>
-  );
-}
-
-const button = 'rounded-md border border-edge px-3 py-1.5 text-sm hover:bg-edge disabled:opacity-40';
-const input = 'w-full rounded-md border border-edge bg-ink px-2 py-1.5 text-sm outline-none focus:border-accent';
 
 function StorageSection() {
   const queryClient = useQueryClient();

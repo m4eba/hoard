@@ -3,6 +3,7 @@ import { formatDate } from '../format';
 import { formatBytes, formatDuration, type Folder, type ListItem } from '../api';
 import { folderName, libraryUrl } from '../places';
 import { startMediaDrag, useMoveDrop } from './dnd';
+import { MediaMenu } from './MediaMenu';
 import { PreviewFrame, StoryboardBadge, useHoverPreview } from './TilePreview';
 import type { ViewMode } from './viewMode';
 import type { SelectionState } from './useSelection';
@@ -182,18 +183,25 @@ function Tile({
         )}
       </Link>
 
-      {/* Outside the link, so the storyboard button is not a button inside an
-          anchor; the duration lets clicks fall through to the link. */}
-      {item.kind === 'video' && !previewing && (
-        <div className="pointer-events-none absolute top-1.5 right-1.5 flex items-center gap-1">
-          <span className="pointer-events-auto">
-            <StoryboardBadge item={item} />
-          </span>
-          <span className="rounded bg-black/70 px-1.5 py-0.5 text-[11px] tabular-nums text-white/90">
-            {formatDuration(item.duration)}
-          </span>
-        </div>
-      )}
+      {/* Outside the link, so the buttons are not buttons inside an anchor;
+          the duration lets clicks fall through to the link. The menu button
+          stays through the hover preview: hiding it there would make it
+          unreachable, since pointing at the tile is what starts the preview. */}
+      <div className="pointer-events-none absolute top-1.5 right-1.5 flex items-center gap-1">
+        {item.kind === 'video' && !previewing && (
+          <>
+            <span className="pointer-events-auto">
+              <StoryboardBadge item={item} />
+            </span>
+            <span className="rounded bg-black/70 px-1.5 py-0.5 text-[11px] tabular-nums text-white/90">
+              {formatDuration(item.duration)}
+            </span>
+          </>
+        )}
+        <span className="pointer-events-auto">
+          <MediaMenu item={item} className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100" />
+        </span>
+      </div>
 
       {shown.length > 0 && !previewing && (
         // Outside the link above, so each chip is its own navigation target.
@@ -294,6 +302,7 @@ function Row({
         <span className="w-16 text-right tabular-nums">{formatBytes(item.size)}</span>
         <span className="tabular-nums">{formatDate(item.createdAt)}</span>
       </div>
+      <MediaMenu item={item} className="shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100" />
     </div>
   );
 }

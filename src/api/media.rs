@@ -366,7 +366,7 @@ pub async fn clear_storyboards(State(app): State<App>) -> ApiResult<Json<Value>>
     Ok(Json(json!({ "cleared": cleared })))
 }
 
-async fn serve(path: std::path::PathBuf, req: Request, cache: &'static str) -> ApiResult<Response> {
+pub(super) async fn serve(path: std::path::PathBuf, req: Request, cache: &'static str) -> ApiResult<Response> {
     if !path.is_file() {
         return Err(not_found("file").into());
     }

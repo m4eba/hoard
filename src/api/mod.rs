@@ -1,10 +1,14 @@
-//! The HTTP surface. Everything except signing in and the frontend itself sits
-//! behind the password check when one is configured.
+//! The HTTP surface. Everything except signing in, the frontend itself and
+//! what fiffly calls (which carries its own token) sits behind the password
+//! check when one is configured.
 
+mod fiffly;
 mod imports;
 pub mod library;
 mod media;
+mod publish;
 mod system;
+mod upload;
 
 use axum::{
     Router,
@@ -48,6 +52,10 @@ pub fn router(app: App) -> Router {
         .route("/api/ytdlp", get(system::ytdlp_status))
         .route("/api/ytdlp/install", post(system::ytdlp_install))
         .route("/api/trash", get(system::trash).delete(system::empty_trash))
+        .route("/api/oauth/authorize", get(fiffly::check).post(fiffly::answer))
+        .route("/api/fiffly/connections", get(fiffly::connections))
+        .route("/api/fiffly/connections/{id}", axum::routing::delete(fiffly::revoke))
+        .route("/api/media/{id}/fiffly", get(fiffly::link))
         .route("/f/{id}", get(media::serve_file))
         .route("/t/{id}", get(media::serve_thumb))
         .route("/s/{id}", get(media::serve_storyboard))
@@ -57,6 +65,7 @@ pub fn router(app: App) -> Router {
         .route("/api/config", get(auth::config))
         .route("/api/auth/login", post(auth::login))
         .route("/api/auth/logout", post(auth::logout))
+        .merge(publish::router())
         .merge(protected)
         .fallback(web::static_handler)
         .layer(TraceLayer::new_for_http())

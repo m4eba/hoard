@@ -18,7 +18,7 @@ use crate::{
     error::{ApiResult, bad_request},
     imports,
     ops::{self, Place},
-    paths, scan,
+    paths, publish, scan,
     state::App,
 };
 
@@ -53,20 +53,25 @@ pub async fn tasks(State(app): State<App>) -> Json<Value> {
 }
 
 pub async fn settings(State(app): State<App>) -> ApiResult<Json<Value>> {
-    let (place, args) = app
+    let place_of = |c: &rusqlite::Connection, key: &str| -> anyhow::Result<Option<Place>> {
+        Ok(db::get_setting(c, key)?.and_then(|v| serde_json::from_str::<Place>(&v).ok()))
+    };
+    let mut v = app
         .db
-        .run(|c| {
-            let place = db::get_setting(c, "download_place")?.and_then(|v| serde_json::from_str::<Place>(&v).ok());
-            let args = db::get_setting(c, "ytdlp_args")?.unwrap_or_else(|| imports::DEFAULT_ARGS.to_string());
-            Ok((place, args))
+        .run(move |c| {
+            Ok(json!({
+                "downloadPlace": place_of(c, "download_place")?,
+                "ytdlpArgs": db::get_setting(c, "ytdlp_args")?.unwrap_or_else(|| imports::DEFAULT_ARGS.to_string()),
+                "fifflyUrl": publish::fiffly_url(c)?,
+                "fifflySite": db::get_setting(c, "fiffly_site")?,
+                "fifflyPlace": place_of(c, "fiffly_place")?,
+            }))
         })
         .await?;
-    Ok(Json(json!({
-        "downloadPlace": place,
-        "ytdlpArgs": args,
-        "defaultYtdlpArgs": imports::DEFAULT_ARGS,
-        "trashDays": app.cfg.trash_days,
-    })))
+    v["defaultYtdlpArgs"] = imports::DEFAULT_ARGS.into();
+    v["defaultFifflyUrl"] = publish::DEFAULT_FIFFLY_URL.into();
+    v["trashDays"] = app.cfg.trash_days.into();
+    Ok(Json(v))
 }
 
 #[derive(Deserialize)]
@@ -74,6 +79,22 @@ pub async fn settings(State(app): State<App>) -> ApiResult<Json<Value>> {
 pub struct SaveSettings {
     download_place: Option<Option<Place>>,
     ytdlp_args: Option<String>,
+    fiffly_url: Option<String>,
+    /// The address fiffly reaches hoard at; none means wherever the browser
+    /// has it open.
+    fiffly_site: Option<Option<String>>,
+    fiffly_place: Option<Option<Place>>,
+}
+
+/// `https://host[:port]` with nothing after it: an origin, which is all
+/// fiffly and the OAuth redirect check deal in.
+fn origin(raw: &str, what: &str) -> Result<String, crate::error::Reject> {
+    let s = raw.trim().trim_end_matches('/');
+    let rest = s.strip_prefix("https://").or_else(|| s.strip_prefix("http://"));
+    match rest {
+        Some(host) if !host.is_empty() && !host.contains(['/', '?', '#', ' ']) => Ok(s.to_lowercase()),
+        _ => Err(bad_request(format!("{what} must be an address like https://example.com, without a path"))),
+    }
 }
 
 pub async fn save_settings(State(app): State<App>, Json(body): Json<SaveSettings>) -> ApiResult<Json<Value>> {
@@ -82,18 +103,32 @@ pub async fn save_settings(State(app): State<App>, Json(body): Json<SaveSettings
             return Err(bad_request("the yt-dlp arguments have unbalanced quotes").into());
         }
     }
-    if let Some(Some(place)) = &body.download_place {
+    for place in [&body.download_place, &body.fiffly_place].into_iter().flatten().flatten() {
         ops::prepare_place(&app, place).await?;
     }
+    let fiffly_url = body.fiffly_url.as_deref().map(|u| origin(u, "the fiffly address")).transpose()?;
+    let fiffly_site = match &body.fiffly_site {
+        Some(Some(s)) if !s.trim().is_empty() => Some(Some(origin(s, "hoard's address")?)),
+        Some(_) => Some(None),
+        None => None,
+    };
     app.db
         .run(move |c| {
-            match body.download_place {
-                Some(Some(place)) => db::set_setting(c, "download_place", &serde_json::to_string(&place)?)?,
-                Some(None) => {
-                    c.execute("DELETE FROM settings WHERE key = 'download_place'", [])?;
+            let put = |key: &str, value: Option<Option<String>>| -> anyhow::Result<()> {
+                match value {
+                    Some(Some(v)) => db::set_setting(c, key, &v)?,
+                    Some(None) => {
+                        c.execute("DELETE FROM settings WHERE key = ?", [key])?;
+                    }
+                    None => {}
                 }
-                None => {}
-            }
+                Ok(())
+            };
+            let json = |p: Option<Option<Place>>| p.map(|p| p.map(|p| serde_json::to_string(&p).unwrap_or_default()));
+            put("download_place", json(body.download_place))?;
+            put("fiffly_place", json(body.fiffly_place))?;
+            put("fiffly_site", fiffly_site)?;
+            put("fiffly_url", fiffly_url.map(Some))?;
             if let Some(args) = body.ytdlp_args {
                 db::set_setting(c, "ytdlp_args", args.trim())?;
             }
