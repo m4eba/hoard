@@ -1,0 +1,30 @@
+@import 'tailwindcss';
+
+/* A media library is looked at, not read: a dark ground keeps the interface
+   out of the way of the images. */
+@theme {
+  --color-ink: #0b0c0e;
+  --color-panel: #141619;
+  --color-edge: #23262b;
+  --color-muted: #8b929c;
+  --color-accent: #6ea8fe;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-ink);
+  color: #e7e9ec;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  overscroll-behavior: none;
+}
+
+/* Belt and braces for iOS Safari, which will otherwise draw its own controls
+   over a <video> that deliberately has none. */
+video::-webkit-media-controls {
+  display: none !important;
+}
