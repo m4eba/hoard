@@ -3,3 +3,5 @@ data
 web/node_modules
 web/dist
 .git
+web/test-results
+web/playwright-report

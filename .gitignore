@@ -4,3 +4,7 @@ web/node_modules
 web/dist
 web/tsconfig.tsbuildinfo
 .env
+
+# Browser tests
+/web/test-results
+/web/playwright-report
