@@ -129,6 +129,77 @@ CREATE TABLE storyboard_queue (
     priority  INTEGER NOT NULL DEFAULT 0,
     queued_at INTEGER NOT NULL
 );
+"#, r#"
+-- Ids are never reused. Without AUTOINCREMENT, SQLite hands a deleted
+-- table's top ids to the next rows, and thumbnail and storyboard URLs, which
+-- are cached for good by id and version, then showed the old file's images.
+-- Rebuilt the documented way: new table, copy, drop, rename.
+CREATE TABLE roots_new (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    name         TEXT NOT NULL,
+    path         TEXT NOT NULL UNIQUE,
+    created_at   INTEGER NOT NULL,
+    last_scan_at INTEGER
+);
+INSERT INTO roots_new (id, name, path, created_at, last_scan_at)
+    SELECT id, name, path, created_at, last_scan_at FROM roots;
+DROP TABLE roots;
+ALTER TABLE roots_new RENAME TO roots;
+
+DROP TRIGGER media_ai;
+DROP TRIGGER media_au;
+DROP TRIGGER media_ad;
+CREATE TABLE media_new (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    root_id     INTEGER NOT NULL REFERENCES roots(id) ON DELETE CASCADE,
+    folder      TEXT NOT NULL,
+    filename    TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    title       TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    source_url  TEXT NOT NULL DEFAULT '',
+    size        INTEGER NOT NULL,
+    file_mtime  INTEGER NOT NULL,
+    added_at    INTEGER NOT NULL,
+    duration    REAL NOT NULL DEFAULT 0,
+    width       INTEGER NOT NULL DEFAULT 0,
+    height      INTEGER NOT NULL DEFAULT 0,
+    video_codec TEXT NOT NULL DEFAULT '',
+    audio_codec TEXT NOT NULL DEFAULT '',
+    processed   INTEGER NOT NULL DEFAULT 0,
+    thumb_ver   INTEGER NOT NULL DEFAULT 0,
+    storyboard  TEXT,
+    UNIQUE (root_id, folder, filename)
+);
+INSERT INTO media_new (id, root_id, folder, filename, kind, title, description, source_url,
+        size, file_mtime, added_at, duration, width, height, video_codec, audio_codec,
+        processed, thumb_ver, storyboard)
+    SELECT id, root_id, folder, filename, kind, title, description, source_url,
+        size, file_mtime, added_at, duration, width, height, video_codec, audio_codec,
+        processed, thumb_ver, storyboard FROM media;
+DROP TABLE media;
+ALTER TABLE media_new RENAME TO media;
+CREATE INDEX media_added ON media (added_at);
+CREATE INDEX media_folder ON media (root_id, folder);
+CREATE INDEX media_pending ON media (processed) WHERE processed = 0;
+CREATE TRIGGER media_ai AFTER INSERT ON media BEGIN
+    INSERT INTO media_fts (rowid, title, filename, tags, description, folder)
+    VALUES (new.id, new.title, new.filename, '', new.description, new.folder);
+END;
+CREATE TRIGGER media_au AFTER UPDATE OF title, filename, description, folder ON media BEGIN
+    UPDATE media_fts SET title = new.title, filename = new.filename,
+        description = new.description, folder = new.folder
+    WHERE rowid = new.id;
+END;
+CREATE TRIGGER media_ad AFTER DELETE ON media BEGIN
+    DELETE FROM media_fts WHERE rowid = old.id;
+END;
+
+-- Browsers may already hold another file's image under a reused id; new
+-- versions give every existing thumbnail and storyboard a fresh URL.
+UPDATE media SET thumb_ver = thumb_ver + 1 WHERE thumb_ver > 0;
+UPDATE media SET storyboard = json_set(storyboard, '$.ver', json_extract(storyboard, '$.ver') + 1)
+    WHERE storyboard IS NOT NULL;
 "#];
 
 #[derive(Clone)]
@@ -170,14 +241,30 @@ impl Db {
 
 fn migrate(conn: &mut Connection) -> Result<()> {
     let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-    for (i, sql) in MIGRATIONS.iter().enumerate().skip(version as usize) {
-        let tx = conn.transaction()?;
-        tx.execute_batch(sql).with_context(|| format!("migration {}", i + 1))?;
-        tx.pragma_update(None, "user_version", (i + 1) as i64)?;
-        tx.commit()?;
-        tracing::info!("applied migration {}", i + 1);
+    if version as usize >= MIGRATIONS.len() {
+        return Ok(());
     }
-    Ok(())
+    // Rebuilding a table means dropping it, and with foreign keys on, the drop
+    // would cascade into every table referencing it. The pragma is a no-op
+    // inside a transaction, so it is switched around the whole run, and the
+    // references are checked before it is switched back.
+    conn.execute_batch("PRAGMA foreign_keys = OFF")?;
+    let result = (|| -> Result<()> {
+        for (i, sql) in MIGRATIONS.iter().enumerate().skip(version as usize) {
+            let tx = conn.transaction()?;
+            tx.execute_batch(sql).with_context(|| format!("migration {}", i + 1))?;
+            let broken: i64 = tx.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| r.get(0))?;
+            if broken > 0 {
+                anyhow::bail!("migration {} left {broken} broken references", i + 1);
+            }
+            tx.pragma_update(None, "user_version", (i + 1) as i64)?;
+            tx.commit()?;
+            tracing::info!("applied migration {}", i + 1);
+        }
+        Ok(())
+    })();
+    conn.execute_batch("PRAGMA foreign_keys = ON")?;
+    result
 }
 
 pub fn now() -> i64 {
@@ -197,4 +284,38 @@ pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
         params![key, value],
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Thumbnails are cached by id, so an id handed out twice shows one
+    /// file's thumbnail on another.
+    #[test]
+    fn ids_are_never_reused() {
+        let dir = std::env::temp_dir().join(format!("hoard-db-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db = Db::open(&dir.join("test.db")).unwrap();
+        let mut conn = db.0.get().unwrap();
+        let add = |c: &mut Connection| -> (i64, i64) {
+            c.execute("INSERT INTO roots (name, path, created_at) VALUES ('r', '/r', 0)", []).unwrap();
+            let root = c.last_insert_rowid();
+            c.execute(
+                "INSERT INTO media (root_id, folder, filename, kind, title, size, file_mtime, added_at)
+                 VALUES (?, '', 'a.mp4', 'video', 'a', 1, 0, 0)",
+                [root],
+            )
+            .unwrap();
+            (root, c.last_insert_rowid())
+        };
+        let (root, media) = add(&mut conn);
+        conn.execute("DELETE FROM roots WHERE id = ?", [root]).unwrap();
+        let gone: i64 = conn.query_row("SELECT count(*) FROM media", [], |r| r.get(0)).unwrap();
+        assert_eq!(gone, 0, "deleting a root cascades to its media");
+        let (root2, media2) = add(&mut conn);
+        assert!(root2 > root && media2 > media);
+        drop(conn);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
