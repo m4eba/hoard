@@ -147,3 +147,7 @@ The layout: `src/api/` is the HTTP surface, `src/scan.rs` reconciles the
 database with the disk, `src/ops.rs` moves and deletes files, `src/process.rs`
 runs ffprobe/ffmpeg, `src/imports/` runs downloads, `src/search.rs` compiles
 the query language to SQL over an FTS5 index, `web/` is the React frontend.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
