@@ -35,6 +35,9 @@ pub struct AppState {
     pub storyboards: Mutex<HashSet<i64>>,
     /// Media being moved, so two moves cannot race over the same file.
     pub moving: Mutex<HashSet<i64>>,
+    /// Storage folders a folder is being moved out of or into; they are not
+    /// scanned meanwhile, or a half-moved tree would look deleted.
+    pub folder_moves: Mutex<HashSet<i64>>,
 }
 
 pub type App = Arc<AppState>;
@@ -53,6 +56,7 @@ impl AppState {
             scanning: Default::default(),
             storyboards: Default::default(),
             moving: Default::default(),
+            folder_moves: Default::default(),
             events,
             cfg,
             db,

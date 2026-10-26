@@ -39,6 +39,7 @@ pub fn router(app: App) -> Router {
             "/api/folders",
             get(library::folders).post(library::create_folder).delete(library::delete_folder),
         )
+        .route("/api/folders/move", post(library::move_folder))
         .route("/api/fs", get(library::browse))
         .route("/api/stats", get(library::stats))
         .route("/api/import", get(imports::recent).post(imports::start))

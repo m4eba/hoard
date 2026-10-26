@@ -66,6 +66,15 @@ impl Server {
     }
 
     pub fn start_with(env: &[(&str, &str)]) -> Self {
+        Self::launch(env, &[])
+    }
+
+    /// With more storage folders after the generated one; they must exist.
+    pub fn start_with_roots(extra: &[&Path]) -> Self {
+        Self::launch(&[], extra)
+    }
+
+    fn launch(env: &[(&str, &str)], extra_roots: &[&Path]) -> Self {
         let dir = std::env::temp_dir().join(format!(
             "hoard-e2e-{}-{}",
             std::process::id(),
@@ -84,7 +93,7 @@ impl Server {
         }
         cmd.env("HOARD_DATA_DIR", dir.join("data"))
             .env("HOARD_LISTEN", format!("127.0.0.1:{port}"))
-            .env("HOARD_ROOTS", &lib)
+            .env("HOARD_ROOTS", std::env::join_paths(std::iter::once(lib.as_path()).chain(extra_roots.iter().copied())).unwrap())
             .env("HOARD_YTDLP_AUTO_UPDATE", "false")
             .env("HOARD_LOG", "hoard=debug")
             .envs(env.iter().copied())
@@ -189,7 +198,23 @@ impl Server {
     }
 
     pub fn root_id(&self) -> i64 {
-        self.json("/api/roots")["roots"][0]["id"].as_i64().unwrap()
+        self.root_named("library")
+    }
+
+    pub fn root_named(&self, name: &str) -> i64 {
+        let roots = self.json("/api/roots");
+        roots["roots"].as_array().unwrap().iter().find(|r| r["name"] == name).expect("root")["id"].as_i64().unwrap()
+    }
+
+    /// Waits for a background task to end, returning its final state.
+    pub fn task(&self, id: u64) -> Value {
+        let mut last = Value::Null;
+        self.wait("the task", || {
+            let tasks = self.json("/api/tasks");
+            last = tasks["tasks"].as_array().unwrap().iter().find(|t| t["id"] == id).cloned().unwrap_or(Value::Null);
+            last["state"] == "done" || last["state"] == "failed"
+        });
+        last
     }
 }
 

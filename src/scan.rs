@@ -163,10 +163,14 @@ fn apply(conn: &mut rusqlite::Connection, root_id: i64, first_scan: bool, walk: 
 }
 
 /// Scans one storage folder. A second request for a root already being
-/// scanned is a no-op rather than a second walk racing the first.
+/// scanned is a no-op rather than a second walk racing the first, and so is a
+/// scan of a root a folder is being moved in; the next scan catches up.
 pub async fn scan_root(app: &App, root_id: i64) -> Result<()> {
-    if !app.scanning.lock().unwrap().insert(root_id) {
-        return Ok(());
+    {
+        let busy = app.folder_moves.lock().unwrap();
+        if busy.contains(&root_id) || !app.scanning.lock().unwrap().insert(root_id) {
+            return Ok(());
+        }
     }
     let result = scan_inner(app, root_id).await;
     app.scanning.lock().unwrap().remove(&root_id);

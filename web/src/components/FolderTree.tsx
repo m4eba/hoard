@@ -4,12 +4,15 @@ import { useQueryClient } from '@tanstack/react-query';
 import { createFolder, queueStoryboards, type Folder, type Root } from '../api';
 import { childFolders, folderName, libraryUrl, placeLabel, useFolders, useRoots } from '../places';
 import { DeleteFolderDialog } from './DeleteFolderDialog';
-import { useMoveDrop } from './dnd';
+import { startFolderDrag, useMoveDrop } from './dnd';
+import { FolderInput } from './FolderInput';
+import { useFolderMove } from './useFolderMove';
 import { FolderIcon } from './MediaGrid';
 
 /**
  * The sidebar's folder tree: each storage root, and the folders inside it as
- * they are on disk. Every node is a drop target for dragged tiles.
+ * they are on disk. Every node is a drop target for dragged tiles and
+ * folders, and every folder can be dragged onto another.
  */
 const EXPANDED_KEY = 'hoard.tree';
 
@@ -138,8 +141,11 @@ function Node({
   const children = childFolders(folders, root.id, folder.path);
   const open = expanded.has(key);
   const active = current.rootId === root.id && current.folder === folder.path;
-  const { over, handlers } = useMoveDrop({ rootId: root.id, folder: folder.path });
+  const place = { rootId: root.id, folder: folder.path };
+  const { over, handlers } = useMoveDrop(place);
+  const moveFolder = useFolderMove();
   const [adding, setAdding] = useState(false);
+  const [moving, setMoving] = useState(false);
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
@@ -205,7 +211,9 @@ function Node({
           </svg>
         </button>
         <Link
-          to={libraryUrl({ rootId: root.id, folder: folder.path })}
+          to={libraryUrl(place)}
+          draggable={depth > 0}
+          onDragStart={depth > 0 ? (e) => startFolderDrag(e, place) : undefined}
           className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-16"
           title={folder.path || root.path}
         >
@@ -231,6 +239,11 @@ function Node({
           <IconButton label="New folder here" onClick={() => setAdding(true)}>
             <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
           </IconButton>
+          {depth > 0 && (
+            <IconButton label="Move folder" onClick={() => setMoving(true)}>
+              <path d="M20 6h-8l-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2zm-6 12v-3h-4v-4h4V8l5 5-5 5z" />
+            </IconButton>
+          )}
           {depth > 0 && (
             <IconButton label="Delete folder" danger onClick={() => onDelete(folder)}>
               <path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
@@ -260,6 +273,22 @@ function Node({
             className="w-full rounded border border-edge bg-ink px-2 py-1 text-xs outline-none focus:border-accent"
           />
           {error && <p className="mt-1 text-[11px] text-red-400">{error}</p>}
+        </div>
+      )}
+
+      {moving && (
+        <div style={{ paddingLeft: depth * 12 + 20 }} className="py-1 pr-1">
+          <FolderInput
+            value={null}
+            autoFocus
+            placeholder={`Move ${folderName(folder.path)} into…`}
+            onCommit={(to) => {
+              setMoving(false);
+              if (to) void moveFolder(place, to);
+            }}
+            onCancel={() => setMoving(false)}
+            narrow
+          />
         </div>
       )}
 

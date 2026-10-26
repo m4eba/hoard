@@ -174,8 +174,8 @@ pub fn compile(conn: &Connection, filter: &Filter) -> Result<Compiled> {
             c.conditions.push(format!("m.folder = {p}"));
         } else if !folder.is_empty() {
             let eq = bind(&mut c, folder.clone().into());
-            let like = bind(&mut c, format!("{}/%", like_escape(&folder)).into());
-            c.conditions.push(format!("(m.folder = {eq} OR m.folder LIKE {like} ESCAPE '\\')"));
+            let below = bind(&mut c, crate::paths::below_glob(&folder).into());
+            c.conditions.push(format!("(m.folder = {eq} OR m.folder GLOB {below})"));
         }
     }
     if let Some(kind) = filter.kind.as_deref().filter(|k| matches!(*k, "image" | "video")) {

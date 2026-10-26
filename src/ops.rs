@@ -1,6 +1,6 @@
-//! Operations that change files on disk as well as rows: moving media between
-//! folders and storage roots, deleting to the trash, creating and removing
-//! folders.
+//! Operations that change files on disk as well as rows: moving media and
+//! folders between folders and storage roots, deleting to the trash, creating
+//! and removing folders.
 
 use std::{
     fs,
@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 
 use crate::{
     db::params,
-    error::{bad_request, not_found},
+    error::{bad_request, conflict, not_found},
     events::Event,
     media, paths, process,
     state::App,
@@ -124,6 +124,135 @@ pub async fn start_move(app: &App, ids: Vec<i64>, place: Place) -> Result<u64> {
     Ok(task_id)
 }
 
+/// Moves a folder, with everything in it, into another folder — of the same
+/// storage folder or another one — as a background task. Returns the task
+/// and where the folder ends up. Media keep their ids, so tags, thumbnails
+/// and storyboards come along; scans of both storage folders wait.
+pub async fn start_folder_move(app: &App, root_id: i64, folder: String, to: Place) -> Result<(u64, Place)> {
+    let folder = paths::clean_folder(&folder)?;
+    if folder.is_empty() {
+        return Err(bad_request("a storage folder's top level cannot be moved").into());
+    }
+    let name = folder.rsplit('/').next().unwrap_or(&folder).to_string();
+    let target_parent = paths::clean_folder(&to.folder)?;
+    let dest = if target_parent.is_empty() { name.clone() } else { format!("{target_parent}/{name}") };
+    if to.root_id == root_id {
+        if dest == folder {
+            return Err(bad_request("the folder is already there").into());
+        }
+        if target_parent == folder || target_parent.starts_with(&format!("{folder}/")) {
+            return Err(bad_request("a folder cannot move into itself").into());
+        }
+    }
+    let src_root: String = app
+        .db
+        .run(move |c| {
+            use rusqlite::OptionalExtension;
+            Ok(c.query_row("SELECT path FROM roots WHERE id = ?", [root_id], |r| r.get(0)).optional()?)
+        })
+        .await?
+        .ok_or_else(|| not_found("storage folder"))?;
+    let src = paths::folder_dir(Path::new(&src_root), &folder);
+    if !src.is_dir() {
+        return Err(not_found("folder").into());
+    }
+    let (dst_root, _) = prepare_place(app, &Place { root_id: to.root_id, folder: target_parent.clone() }).await?;
+    let dst = paths::folder_dir(&dst_root, &dest);
+    if dst.exists() {
+        return Err(conflict(format!("there is already a folder named {name:?} there")).into());
+    }
+
+    let ids: Vec<i64> = {
+        let (f, below) = (folder.clone(), paths::below_glob(&folder));
+        app.db
+            .run(move |c| {
+                let mut stmt = c.prepare(
+                    "SELECT id FROM media WHERE root_id = ? AND (folder = ? OR folder GLOB ?)",
+                )?;
+                let ids = stmt.query_map(params![root_id, f, below], |r| r.get(0))?.collect::<Result<_, _>>()?;
+                Ok(ids)
+            })
+            .await?
+    };
+    // Claim both storage folders and every file in the folder, or nothing.
+    {
+        let scanning = app.scanning.lock().unwrap();
+        let mut busy = app.folder_moves.lock().unwrap();
+        let mut moving = app.moving.lock().unwrap();
+        if [root_id, to.root_id].iter().any(|r| scanning.contains(r) || busy.contains(r)) {
+            return Err(conflict("that storage folder is being scanned or reorganised; try again in a moment").into());
+        }
+        if ids.iter().any(|id| moving.contains(id)) {
+            return Err(conflict("files in this folder are being moved right now").into());
+        }
+        busy.extend([root_id, to.root_id]);
+        moving.extend(ids.iter().copied());
+    }
+
+    let task = app.tasks.start("move", format!("Moving folder {name}"), 0);
+    let task_id = task.id();
+    let app = app.clone();
+    let place = Place { root_id: to.root_id, folder: dest.clone() };
+    tokio::spawn(async move {
+        let moved = tokio::task::block_in_place(|| paths::move_dir(&src, &dst, |done, total| task.progress(done, total, "")));
+        let result = match moved {
+            Err(e) => Err(e),
+            Ok(()) => {
+                let (old, new, to_root) = (folder.clone(), dest.clone(), to.root_id);
+                app.db
+                    .run(move |c| {
+                        let tx = c.transaction()?;
+                        let below = paths::below_glob(&old);
+                        // Characters, as SQLite's substr counts them.
+                        let rest = old.chars().count() as i64 + 1;
+                        tx.execute(
+                            "UPDATE media SET root_id = ?1, folder = ?2 || substr(folder, ?3)
+                             WHERE root_id = ?4 AND (folder = ?5 OR folder GLOB ?6)",
+                            params![to_root, new, rest, root_id, old, below],
+                        )?;
+                        let subfolders: Vec<String> = {
+                            let mut stmt = tx.prepare(
+                                "SELECT path FROM folders WHERE root_id = ? AND (path = ? OR path GLOB ?)",
+                            )?;
+                            stmt.query_map(params![root_id, old, below], |r| r.get(0))?.collect::<Result<_, _>>()?
+                        };
+                        tx.execute(
+                            "DELETE FROM folders WHERE root_id = ? AND (path = ? OR path GLOB ?)",
+                            params![root_id, old, below],
+                        )?;
+                        for path in subfolders {
+                            media::ensure_folder(&tx, to_root, &format!("{new}{}", &path[old.len()..]))?;
+                        }
+                        tx.commit()?;
+                        Ok(())
+                    })
+                    .await
+                    // The files have moved; a rescan of both storage folders
+                    // matches them up again by size and modification time.
+                    .context("the files moved, but the library could not be updated; rescan both storage folders")
+            }
+        };
+        {
+            let mut moving = app.moving.lock().unwrap();
+            for id in &ids {
+                moving.remove(id);
+            }
+            let mut busy = app.folder_moves.lock().unwrap();
+            busy.remove(&root_id);
+            busy.remove(&to.root_id);
+        }
+        app.events.send(Event::Library);
+        match result {
+            Ok(()) => task.finish(format!("{} files moved", ids.len())),
+            Err(e) => {
+                tracing::warn!("moving folder {folder}: {e:#}");
+                task.fail(format!("{e:#}"));
+            }
+        }
+    });
+    Ok((task_id, place))
+}
+
 /// Moves one file and its companions into `dir`, returning the name it ended
 /// up with — a clash with an existing file gets a numbered name instead of
 /// overwriting it.
@@ -225,12 +354,12 @@ pub async fn delete_folder(app: &App, root_id: i64, folder: String) -> Result<us
     let dir = paths::folder_dir(Path::new(&root), &folder);
     tokio::task::spawn_blocking(move || remove_empty_dirs(&dir)).await?;
 
-    let like = format!("{}/%", folder.replace('%', "\\%").replace('_', "\\_"));
+    let below = paths::below_glob(&folder);
     app.db
         .run(move |c| {
             c.execute(
-                "DELETE FROM folders WHERE root_id = ? AND (path = ? OR path LIKE ? ESCAPE '\\')",
-                params![root_id, folder, like],
+                "DELETE FROM folders WHERE root_id = ? AND (path = ? OR path GLOB ?)",
+                params![root_id, folder, below],
             )?;
             Ok(())
         })

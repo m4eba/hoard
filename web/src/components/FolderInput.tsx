@@ -19,6 +19,9 @@ export function FolderInput({
   placeholder = 'Folder',
   fallbackRoot,
   allowEmpty = false,
+  autoFocus = false,
+  onCancel,
+  narrow = false,
   className = '',
 }: {
   value: Place | null;
@@ -27,6 +30,12 @@ export function FolderInput({
   fallbackRoot?: number;
   /** Clearing the box commits null, which callers read as "the default". */
   allowEmpty?: boolean;
+  autoFocus?: boolean;
+  /** Escape, or leaving the box without a folder. */
+  onCancel?: () => void;
+  /** In a tight container that clips, like the sidebar: the list keeps to
+   *  the box's width instead of growing past it. */
+  narrow?: boolean;
   className?: string;
 }) {
   const roots = useRoots();
@@ -65,6 +74,7 @@ export function FolderInput({
     if (!next) {
       setText(label);
       if (allowEmpty && value) onCommit(null);
+      else onCancel?.();
       return;
     }
     setText(placeLabel(next, roots));
@@ -89,14 +99,17 @@ export function FolderInput({
       return;
     }
     if (e.key === 'Escape') {
+      editing.current = false;
       setText(label);
       setOpen(false);
+      onCancel?.();
     }
   }
 
   return (
     <div ref={boxRef} className={`relative ${className}`}>
       <input
+        autoFocus={autoFocus}
         value={text}
         onChange={(e) => {
           setText(e.target.value);
@@ -122,7 +135,7 @@ export function FolderInput({
       />
 
       {open && (matches.length > 0 || (typed && !exists)) && (
-        <ul className="absolute z-40 mt-1 max-h-60 w-full min-w-56 overflow-auto rounded-md border border-edge bg-panel py-1 shadow-xl">
+        <ul className={`absolute z-40 mt-1 max-h-60 w-full ${narrow ? '' : 'min-w-56'} overflow-auto rounded-md border border-edge bg-panel py-1 shadow-xl`}>
           {typed && !exists && query && (
             <li>
               <button
@@ -132,8 +145,9 @@ export function FolderInput({
                   commit(typed);
                 }}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-accent"
+                title={placeLabel(typed, roots)}
               >
-                + Create “{placeLabel(typed, roots)}”
+                <span className="truncate">+ Create “{placeLabel(typed, roots)}”</span>
               </button>
             </li>
           )}
@@ -151,7 +165,9 @@ export function FolderInput({
                   i === active ? 'bg-edge text-white' : 'text-white/80'
                 }`}
               >
-                <span className="truncate">{o.label}</span>
+                <span className="truncate" title={o.label}>
+                  {o.label}
+                </span>
                 <span className="ml-auto shrink-0 text-xs text-muted">{o.total}</span>
               </button>
             </li>

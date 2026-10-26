@@ -130,3 +130,36 @@ test('settings link to fiffly, and the consent page hands fiffly a code', async 
   await page.goto(`/oauth/authorize?${params.toString().replace('fiffly.com', 'evil.example')}`);
   await expect(page.getByText('This request can’t be shown')).toBeVisible();
 });
+
+// Last: it reorganises the library the tests above rely on.
+test('folders move by dragging and from the sidebar', async ({ page }) => {
+  const { roots } = (await (await page.request.get('/api/roots')).json()) as { roots: { id: number }[] };
+  const rootId = roots[0].id;
+  for (const path of ['archive', 'later']) {
+    expect((await page.request.post('/api/folders', { data: { rootId, path } })).ok()).toBe(true);
+  }
+  const folderOf = async (filename: string) => {
+    const id = await idOf(page, filename);
+    return ((await (await page.request.get(`/api/media/${id}`)).json()) as { folder: string }).folder;
+  };
+
+  // Drag the clips tile onto the archive tile.
+  await page.goto(`/library?root=${rootId}`);
+  page.once('dialog', (d) => void d.accept());
+  const grid = page.locator('main');
+  await grid.getByRole('link', { name: /^clips/ }).dragTo(grid.getByRole('link', { name: /^archive/ }));
+  await expect.poll(() => folderOf('red.mp4'), { timeout: 15_000 }).toBe('archive/clips');
+
+  // Then from the sidebar's folder menu, while viewing it: the page follows.
+  await page.goto(`/library?root=${rootId}&folder=archive%2Fclips`);
+  const node = page.locator('aside div.group\\/node', { has: page.getByRole('link', { name: 'clips', exact: true }) });
+  await node.hover();
+  await node.getByRole('button', { name: 'Move folder' }).click();
+  page.once('dialog', (d) => void d.accept());
+  const input = page.getByPlaceholder('Move clips into…');
+  await input.fill('library/later');
+  await input.press('Enter');
+  await expect(page).toHaveURL(/folder=later%2Fclips/);
+  await expect.poll(() => folderOf('red.mp4'), { timeout: 15_000 }).toBe('later/clips');
+  await expect(tile(page, 'red')).toBeVisible();
+});

@@ -10,7 +10,9 @@ directory.
 
 - **Folders, not albums.** The library's folders are the directories on disk.
   Create, delete and move between them in the UI and the files move on disk
-  too — including between storage folders on different drives.
+  too — including between storage folders on different drives. Folders
+  themselves move the same way: drag one onto another (sidebar or grid), or
+  use **Move folder** in the sidebar; tags and thumbnails come along.
 - **Several storage folders.** Add as many directories as you like; each is
   scanned, and files reorganised outside the app are recognised as moved
   rather than deleted, so their tags survive.
@@ -147,11 +149,13 @@ authorised by the token or the URL's signature, not the session cookie.
 - **Delete** moves files into a `.hoard-trash` directory inside their storage
   folder, under a dated subdirectory; it is emptied after `HOARD_TRASH_DAYS`
   or from Settings.
-- **Move** renames when source and destination share a filesystem and copies
-  otherwise (to a hidden temporary name first, so an interrupted copy never
-  looks like a real file). Name clashes get a numbered name rather than
-  overwriting. Sidecar files sharing the media's name — subtitles,
-  `.info.json`, `.nfo` — move with it.
+- **Move** — of files or whole folders — renames when source and destination
+  share a filesystem and copies otherwise (to a hidden temporary name first,
+  so an interrupted copy never looks like a real file or folder). A file whose
+  name is taken gets a numbered name rather than overwriting; a folder is not
+  merged into one of the same name, the move is refused. Sidecar files sharing
+  the media's name — subtitles, `.info.json`, `.nfo` — move with it, and a
+  moved folder takes everything inside it along.
 - **Removing a storage folder** only forgets it; nothing on disk is touched.
 - A storage folder that is missing or suddenly empty (an unmounted drive) is
   not treated as "everything was deleted": the scan stops and nothing is

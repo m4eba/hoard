@@ -69,6 +69,16 @@ pub fn clean_filename(raw: &str) -> Result<String> {
     Ok(name)
 }
 
+/// A GLOB pattern for everything below `folder`. GLOB rather than LIKE:
+/// LIKE ignores case, and `clips` must not take `Clips/…` along with it.
+pub fn below_glob(folder: &str) -> String {
+    let escaped: String = folder
+        .chars()
+        .map(|c| if matches!(c, '*' | '?' | '[') { format!("[{c}]") } else { c.to_string() })
+        .collect();
+    format!("{escaped}/*")
+}
+
 /// The directory of a folder path under a root.
 pub fn folder_dir(root: &Path, folder: &str) -> PathBuf {
     if folder.is_empty() { root.to_path_buf() } else { root.join(folder) }
@@ -179,6 +189,75 @@ fn is_cross_device(e: &io::Error) -> bool {
     e.kind() == io::ErrorKind::CrossesDevices
 }
 
+/// Moves a whole directory, everything in it included. On one filesystem
+/// that is a single rename; across filesystems the tree is copied into a
+/// hidden directory next to the target, renamed into place once complete,
+/// and only then is the original removed — an interrupted copy leaves the
+/// source untouched. `progress` gets the bytes copied of `total`.
+pub fn move_dir(from: &Path, to: &Path, mut progress: impl FnMut(u64, u64)) -> Result<()> {
+    if to.exists() {
+        anyhow::bail!("{} already exists", to.display());
+    }
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
+    }
+    match fs::rename(from, to) {
+        Ok(()) => return Ok(()),
+        Err(e) if is_cross_device(&e) => {}
+        Err(e) => return Err(e).with_context(|| format!("moving {}", from.display())),
+    }
+
+    let total = dir_size(from);
+    let tmp = to.with_file_name(format!(
+        ".{}.hoard-part",
+        to.file_name().and_then(|n| n.to_str()).unwrap_or("folder")
+    ));
+    let _ = fs::remove_dir_all(&tmp);
+    let mut copied = 0u64;
+    let result = copy_tree(from, &tmp, &mut |n| {
+        copied += n;
+        progress(copied, total);
+    })
+    .and_then(|()| fs::rename(&tmp, to).map_err(Into::into));
+    if let Err(e) = result {
+        let _ = fs::remove_dir_all(&tmp);
+        return Err(e).with_context(|| format!("copying {} to {}", from.display(), to.display()));
+    }
+    fs::remove_dir_all(from).with_context(|| format!("removing {} after copy", from.display()))
+}
+
+/// Copies a directory tree, keeping modification times: the scanner knows a
+/// file by its size and mtime.
+fn copy_tree(from: &Path, to: &Path, copied: &mut impl FnMut(u64)) -> Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let (src, dst) = (entry.path(), to.join(entry.file_name()));
+        let kind = entry.file_type()?;
+        if kind.is_dir() {
+            copy_tree(&src, &dst, copied)?;
+        } else if kind.is_file() {
+            let mut input = fs::File::open(&src)?;
+            let mut output = fs::File::create(&dst)?;
+            let mut buf = vec![0u8; 1 << 20];
+            loop {
+                let n = io::Read::read(&mut input, &mut buf)?;
+                if n == 0 {
+                    break;
+                }
+                io::Write::write_all(&mut output, &buf[..n])?;
+                copied(n as u64);
+            }
+            output.sync_all()?;
+            let meta = fs::metadata(&src)?;
+            filetime::set_file_mtime(&dst, filetime::FileTime::from_last_modification_time(&meta))?;
+        }
+        // Symlinks and other special files are not part of a media library;
+        // they would only be followed somewhere unexpected.
+    }
+    Ok(())
+}
+
 /// Moves a file into its root's trash, under a dated directory so the purge
 /// can expire whole days at once. Renaming within the same filesystem makes
 /// this instant even for large videos.
@@ -233,6 +312,12 @@ mod tests {
     }
 
     #[test]
+    fn globs_match_only_below_the_folder() {
+        assert_eq!(below_glob("a/b"), "a/b/*");
+        assert_eq!(below_glob("x*[1]?"), "x[*][[]1][?]/*");
+    }
+
+    #[test]
     fn relative_paths_split() {
         let root = Path::new("/media");
         assert_eq!(
@@ -240,6 +325,28 @@ mod tests {
             Some(("a/b".into(), "c.mp4".into()))
         );
         assert_eq!(split_relative(root, Path::new("/media/c.mp4")), Some(("".into(), "c.mp4".into())));
+    }
+
+    /// The cross-filesystem path of `move_dir`, which a test cannot force.
+    #[test]
+    fn trees_copy_with_their_mtimes() {
+        let dir = std::env::temp_dir().join(format!("hoard-copy-test-{}", std::process::id()));
+        let (src, dst) = (dir.join("src"), dir.join("dst"));
+        fs::create_dir_all(src.join("a/b")).unwrap();
+        fs::write(src.join("top.mp4"), b"12345").unwrap();
+        fs::write(src.join("a/b/deep.png"), b"xy").unwrap();
+        let old = filetime::FileTime::from_unix_time(1_600_000_000, 0);
+        filetime::set_file_mtime(src.join("a/b/deep.png"), old).unwrap();
+
+        let mut copied = 0;
+        copy_tree(&src, &dst, &mut |n| copied += n).unwrap();
+        assert_eq!(copied, 7);
+        assert_eq!(fs::read(dst.join("top.mp4")).unwrap(), b"12345");
+        let meta = fs::metadata(dst.join("a/b/deep.png")).unwrap();
+        assert_eq!(filetime::FileTime::from_last_modification_time(&meta), old);
+
+        assert!(move_dir(&src, &dst, |_, _| {}).is_err(), "never merges into an existing folder");
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

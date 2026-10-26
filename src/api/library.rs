@@ -286,6 +286,22 @@ pub async fn create_folder(State(app): State<App>, Json(body): Json<CreateFolder
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MoveFolder {
+    root_id: i64,
+    path: String,
+    /// The folder it goes into.
+    to: ops::Place,
+}
+
+/// Moves a folder into another one, in the background; answers with the
+/// task and the folder's new place.
+pub async fn move_folder(State(app): State<App>, Json(body): Json<MoveFolder>) -> ApiResult<Json<Value>> {
+    let (task, place) = ops::start_folder_move(&app, body.root_id, body.path, body.to).await?;
+    Ok(Json(json!({ "taskId": task, "place": place })))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DeleteFolder {
     root_id: i64,
     path: String,

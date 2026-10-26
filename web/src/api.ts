@@ -297,6 +297,10 @@ export const bulkDelete = (select: Selection, confirm: number) =>
   api.post<{ deleted: number }>('/api/media/delete', { select, confirm });
 
 /** Moves files on disk; runs as a background task. */
+/** Moves a folder, everything in it included, into `to`. */
+export const moveFolder = (from: Place, to: Place) =>
+  api.post<{ taskId: number; place: Place }>('/api/folders/move', { rootId: from.rootId, path: from.folder, to });
+
 export const moveMedia = (select: Selection, place: Place) =>
   api.post<{ taskId: number; count: number }>('/api/media/move', { select, ...place });
 

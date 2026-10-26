@@ -2,7 +2,7 @@ import { Link } from 'react-router';
 import { formatDate } from '../format';
 import { formatBytes, formatDuration, type Folder, type ListItem } from '../api';
 import { folderName, libraryUrl } from '../places';
-import { startMediaDrag, useMoveDrop } from './dnd';
+import { startFolderDrag, startMediaDrag, useMoveDrop } from './dnd';
 import { MediaMenu } from './MediaMenu';
 import { PreviewFrame, StoryboardBadge, useHoverPreview } from './TilePreview';
 import type { ViewMode } from './viewMode';
@@ -369,13 +369,17 @@ function Overflow({ item, hidden, limit }: { item: ListItem; hidden: number; lim
   );
 }
 
-/** A subfolder in the grid: opens on click, takes dropped tiles. */
+/** A subfolder in the grid: opens on click, takes dropped tiles and
+ *  folders, and can itself be dragged into another folder. */
 function FolderTile({ folder }: { folder: Folder }) {
-  const { over, handlers } = useMoveDrop({ rootId: folder.rootId, folder: folder.path });
+  const place = { rootId: folder.rootId, folder: folder.path };
+  const { over, handlers } = useMoveDrop(place);
   return (
     <Link
-      to={libraryUrl({ rootId: folder.rootId, folder: folder.path })}
+      to={libraryUrl(place)}
       {...handlers}
+      draggable
+      onDragStart={(e) => startFolderDrag(e, place)}
       className={`group relative block overflow-hidden rounded-lg border bg-panel ${
         over ? 'border-accent ring-2 ring-accent' : 'border-edge'
       }`}
@@ -402,11 +406,14 @@ function FolderTile({ folder }: { folder: Folder }) {
 }
 
 function FolderRow({ folder }: { folder: Folder }) {
-  const { over, handlers } = useMoveDrop({ rootId: folder.rootId, folder: folder.path });
+  const place = { rootId: folder.rootId, folder: folder.path };
+  const { over, handlers } = useMoveDrop(place);
   return (
     <Link
-      to={libraryUrl({ rootId: folder.rootId, folder: folder.path })}
+      to={libraryUrl(place)}
       {...handlers}
+      draggable
+      onDragStart={(e) => startFolderDrag(e, place)}
       className={`flex items-center gap-3 px-2 py-1.5 ${over ? 'bg-accent/20' : 'bg-panel hover:bg-edge/50'}`}
     >
       <div className="ml-7 flex h-11 w-16 shrink-0 items-center justify-center rounded bg-black/40">
