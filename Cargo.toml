@@ -13,6 +13,7 @@ axum = { version = "0.8.9", features = ["macros"] }
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 filetime = "0.2.29"
 futures-util = "0.3.34"
+image = { version = "0.25.10", default-features = false, features = ["webp", "jpeg"] }
 mime_guess = "2.0.5"
 r2d2 = "0.8.10"
 r2d2_sqlite = "0.35.0"

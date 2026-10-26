@@ -150,6 +150,26 @@ pub async fn thumbnail(ffmpeg: &str, input: &Path, kind: &str, duration: f64, ou
     }
 }
 
+/// Decodes an image ffmpeg cannot read — animated WebP needs FFmpeg 8, and
+/// most distributions ship older — and writes its thumbnail from the first
+/// frame. Returns the image's dimensions, which ffprobe could not give either.
+async fn thumbnail_in_process(input: &Path, out: &Path) -> Result<(i64, i64)> {
+    let (input, out) = (input.to_path_buf(), out.to_path_buf());
+    tokio::task::spawn_blocking(move || {
+        let img = image::ImageReader::open(&input)?.with_guessed_format()?.decode()?;
+        let (w, h) = (img.width(), img.height());
+        // Only ever shrink: a small image stays its own size, like ffmpeg's
+        // min(640, iw) filter.
+        let img = if w > THUMB_BOX || h > THUMB_BOX { img.thumbnail(THUMB_BOX, THUMB_BOX) } else { img };
+        if let Some(dir) = out.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        img.to_rgb8().save_with_format(&out, image::ImageFormat::Jpeg)?;
+        Ok((w as i64, h as i64))
+    })
+    .await?
+}
+
 /// Probes and thumbnails everything waiting, then sleeps until woken. Work is
 /// found in the table rather than passed in, so a restart picks up whatever a
 /// previous run did not finish.
@@ -190,12 +210,32 @@ pub async fn process_media(app: &App, id: i64) -> Result<()> {
     let Some(file) = app.db.run(move |c| media::file(c, id)).await? else { return Ok(()) };
     let kind: String = app.db.run(move |c| Ok(c.query_row("SELECT kind FROM media WHERE id = ?", [id], |r| r.get(0))?)).await?;
     let path = file.path();
-    let p = probe(&app.cfg.ffprobe, &path).await?;
+    let mut p = match probe(&app.cfg.ffprobe, &path).await {
+        Ok(p) => p,
+        // An image has a second way to be read below; a video does not.
+        Err(e) if kind == "image" => {
+            tracing::debug!("probing {}: {e:#}", path.display());
+            Probe::default()
+        }
+        Err(e) => return Err(e),
+    };
     let duration = if kind == "video" { p.duration } else { 0.0 };
 
     let thumb = thumb_path(&app.cfg, id);
     let has_thumb = match thumbnail(&app.cfg.ffmpeg, &path, &kind, duration, &thumb).await {
         Ok(()) => true,
+        Err(e) if kind == "image" => match thumbnail_in_process(&path, &thumb).await {
+            Ok((w, h)) => {
+                if p.width == 0 {
+                    (p.width, p.height) = (w, h);
+                }
+                true
+            }
+            Err(e2) => {
+                tracing::warn!("thumbnail for {}: {e:#}; fallback: {e2:#}", path.display());
+                false
+            }
+        },
         Err(e) => {
             tracing::warn!("thumbnail for {}: {e:#}", path.display());
             false

@@ -200,6 +200,10 @@ END;
 UPDATE media SET thumb_ver = thumb_ver + 1 WHERE thumb_ver > 0;
 UPDATE media SET storyboard = json_set(storyboard, '$.ver', json_extract(storyboard, '$.ver') + 1)
     WHERE storyboard IS NOT NULL;
+"#, r#"
+-- Images ffmpeg could not decode (animated WebP before FFmpeg 8) now have a
+-- fallback; give the ones left without a thumbnail another pass.
+UPDATE media SET processed = 0 WHERE kind = 'image' AND thumb_ver = 0;
 "#];
 
 #[derive(Clone)]
