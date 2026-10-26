@@ -63,15 +63,19 @@ is a single file. Build the web app before `cargo build --release`.
 
 ### Docker
 
+Images for amd64 and arm64 are published to
+`ghcr.io/m4eba/hoard` for every release (`:latest`, `:1`, `:1.2`, `:1.2.3`).
+
 ```sh
-docker build -t hoard .
 docker run -d -p 8150:8150 \
   -v hoard-data:/data \
   -v /path/to/videos:/media/videos \
   -e HOARD_ROOTS=/media/videos \
   -e HOARD_PASSWORD=change-me \
-  hoard
+  ghcr.io/m4eba/hoard
 ```
+
+Or build it yourself with `docker build -t hoard .`.
 
 ## Configuration
 
@@ -174,9 +178,20 @@ Wheel or pinch to zoom about the pointer, drag to pan, double-click to toggle
 ```sh
 cargo run                    # API on :8150
 cd web && npm run dev        # UI on :5190, proxying to the API
-cargo test
 cd web && npm run typecheck
 ```
+
+Tests need `ffmpeg`, which also generates their media:
+
+```sh
+cargo test                   # unit tests, plus end-to-end tests that start the
+                             # real server on a generated library (tests/)
+cd web && npm run build && cd .. && cargo build
+cd web && npm run e2e        # browser tests in Chrome (web/e2e/), on :8151
+```
+
+GitHub Actions runs all of them on every pull request and push to `main`.
+Pushing a `v*` tag runs them again and then publishes the image.
 
 The layout: `src/api/` is the HTTP surface, `src/scan.rs` reconciles the
 database with the disk, `src/ops.rs` moves and deletes files, `src/process.rs`

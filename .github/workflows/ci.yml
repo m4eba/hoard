@@ -1,0 +1,60 @@
+# Tests on every push to main and every pull request; the image workflow
+# calls this too, so nothing is published unless it passes.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  rust:
+    name: Rust (unit + API end-to-end)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      # ffprobe and ffmpeg do the probing, thumbnails and storyboards under
+      # test, and generate the media fixtures.
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked
+      - run: cargo test --locked
+
+  web:
+    name: Web (typecheck, build, browser end-to-end)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build the UI
+        working-directory: web
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+      # A debug build serves web/dist from disk.
+      - run: cargo build --locked
+      # The tests run in Chrome (H.264), which the runner image ships.
+      - name: Browser tests
+        working-directory: web
+        run: npx playwright test
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            web/playwright-report
+            web/test-results
+          retention-days: 14
