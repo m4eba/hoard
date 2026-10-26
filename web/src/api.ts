@@ -225,7 +225,7 @@ export type Filter = {
   kind?: string;
 };
 
-export const listMedia = (filter: Filter, offset = 0, sort?: string) => {
+export const listMedia = (filter: Filter, offset = 0, sort?: string, limit?: number, signal?: AbortSignal) => {
   const q = new URLSearchParams();
   if (filter.q) q.set('q', filter.q);
   if (filter.rootId !== undefined) q.set('rootId', String(filter.rootId));
@@ -234,7 +234,8 @@ export const listMedia = (filter: Filter, offset = 0, sort?: string) => {
   if (filter.kind) q.set('kind', filter.kind);
   if (sort) q.set('sort', sort);
   q.set('offset', String(offset));
-  return api.get<{ media: ListItem[]; nextOffset: number }>(`/api/media?${q}`);
+  if (limit) q.set('limit', String(limit));
+  return request<{ media: ListItem[]; nextOffset: number }>(`/api/media?${q}`, { signal });
 };
 
 export const getMedia = (id: number) => api.get<Media>(`/api/media/${id}`);

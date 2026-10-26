@@ -1,10 +1,9 @@
-import { Link, useLocation, useNavigate, useSearchParams } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { useQuery, useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
 import { formatBytes, getStats, logout, type ListItem, type ServerEvent, type Task } from '../api';
 import { Activity } from './Activity';
 import { FolderTree } from './FolderTree';
-import { SearchBox } from './SearchBox';
+import { SearchBar } from './search/SearchBar';
 import { useServerEvents } from './useServerEvents';
 
 /**
@@ -72,13 +71,7 @@ function SidebarLink({ to, children }: { to: string; children: React.ReactNode }
 }
 
 function TopBar({ authRequired }: { authRequired: boolean }) {
-  const [params] = useSearchParams();
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [q, setQ] = useState(params.get('q') ?? '');
-
-  // Keep the box in step with the URL, so back and forward behave.
-  useEffect(() => setQ(params.get('q') ?? ''), [params]);
 
   return (
     <header className="flex shrink-0 items-center gap-3 border-b border-edge bg-panel px-4 py-2">
@@ -86,14 +79,8 @@ function TopBar({ authRequired }: { authRequired: boolean }) {
         hoard
       </Link>
 
-      <div className="mx-auto w-full max-w-xl">
-        <SearchBox
-          value={q}
-          onChange={setQ}
-          onSubmit={(query) =>
-            navigate(query.trim() ? `/search?q=${encodeURIComponent(query.trim())}` : '/library')
-          }
-        />
+      <div className="mx-auto w-full max-w-2xl">
+        <SearchBar />
       </div>
 
       <div className="flex items-center gap-3 text-sm">

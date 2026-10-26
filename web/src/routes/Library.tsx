@@ -10,7 +10,7 @@ import { ViewToggle } from '../components/ViewToggle';
 import { useViewMode } from '../components/viewMode';
 import { SortSelect, useSortOrder, type SortOrder } from '../components/SortSelect';
 import { useMoveDrop } from '../components/dnd';
-import { childFolders, libraryUrl, useFolders, useRoots } from '../places';
+import { childFolders, libraryUrl, placeLabel, useFolders, useRoots } from '../places';
 
 /**
  * How many files the current filter matches in total, which is what turns
@@ -136,19 +136,25 @@ export function Library() {
   );
 }
 
-/** Ranked search results. */
+/** Ranked search results, across the library or within one folder. */
 export function SearchResults() {
   const [params] = useSearchParams();
   const [view, setView] = useViewMode();
   const [sort, setSort] = useSortOrder(true);
+  const roots = useRoots();
   const q = params.get('q') ?? '';
+  const rootParam = params.get('root');
+  const scope: Place | null =
+    rootParam !== null && !Number.isNaN(Number(rootParam))
+      ? { rootId: Number(rootParam), folder: params.get('folder') ?? '' }
+      : null;
 
-  const filter: Filter = { q };
+  const filter: Filter = scope ? { q, rootId: scope.rootId, folder: scope.folder, recursive: true } : { q };
   const { query, items } = useMedia(filter, sort, q.length > 0);
   const selection = useSelection(items, filter);
   const total = useMatchCount(filter, selection.active && q.length > 0);
 
-  useEffect(() => selection.clear(), [q]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => selection.clear(), [q, scope?.rootId, scope?.folder]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div>
@@ -158,6 +164,18 @@ export function SearchResults() {
             ? 'Searching…'
             : `${items.length}${query.hasNextPage ? '+' : ''} result${items.length === 1 ? '' : 's'} for `}
           {!query.isLoading && <span className="text-white/90">{q}</span>}
+          {scope && (
+            <>
+              {' in '}
+              <Link to={libraryUrl(scope)} className="text-white/90 hover:underline">
+                {placeLabel(scope, roots)}
+              </Link>
+              {' · '}
+              <Link to={`/search?q=${encodeURIComponent(q)}`} className="text-accent hover:underline">
+                search everywhere
+              </Link>
+            </>
+          )}
         </p>
         <div className="ml-auto flex items-center gap-2">
           <SortSelect value={sort} onChange={setSort} searchMode />

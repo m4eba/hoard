@@ -19,6 +19,10 @@ directory.
   environment in the data directory and kept up to date.
 - **Search** across titles, file names, tags, descriptions and folders, with
   typo-tolerant tag matching: `beach -blurry tag:sunset -tag:draft folder:Trips/2024 kind:video`.
+  Results appear as you type; qualifiers and their values (tags, folders,
+  storage folders) complete with Tab; recent searches are remembered; on a
+  folder's page the search is scoped to it until you widen it. `/` or
+  Ctrl+K focuses the box, Ctrl+Enter opens in a new tab.
 - **Tags**, with completion, and bulk tag / move / delete over a hand-picked
   selection or everything matching a search.
 - **A proper viewer**: zoom and pan (wheel, pinch, double-click), custom
