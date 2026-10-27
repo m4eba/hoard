@@ -1,7 +1,8 @@
 //! fiffly saving an export into the library. One request carries the `meta`
 //! JSON part first, an optional timeline (not kept), then one part per file.
-//! Each file becomes its own media item in the folder chosen in Settings.
-//! All or nothing: a request cut off or refused leaves no file behind.
+//! Each file becomes its own media item in the folder picked in fiffly's save
+//! dialog, else the one chosen in Settings. All or nothing: a request cut off
+//! or refused leaves no file behind.
 
 use std::path::PathBuf;
 
@@ -14,12 +15,13 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
 
+use super::export_folders;
 use crate::{
     db,
     error::{ApiResult, Reject, bad_request},
     events::Event,
     media,
-    ops::{self, Place},
+    ops,
     paths, publish,
     state::App,
 };
@@ -43,22 +45,13 @@ struct Meta {
     #[serde(default)]
     tags: Vec<String>,
     source: Option<Source>,
+    /// A folder id from the folder picker; the upload form's `folder` field.
+    folder: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct Source {
     url: Option<String>,
-}
-
-/// Where exports land: the folder picked for them, else where downloads go.
-fn destination(c: &rusqlite::Connection) -> anyhow::Result<Option<Place>> {
-    let picked = db::get_setting(c, "fiffly_place")?.and_then(|v| serde_json::from_str::<Place>(&v).ok());
-    match picked {
-        Some(p) if c.query_row("SELECT EXISTS (SELECT 1 FROM roots WHERE id = ?)", [p.root_id], |r| r.get(0))? => {
-            Ok(Some(p))
-        }
-        _ => crate::imports::default_place(c),
-    }
 }
 
 /// A title as a file name: whatever a filesystem would refuse becomes `_`.
@@ -105,11 +98,7 @@ pub async fn upload(State(app): State<App>, headers: HeaderMap, mut form: Multip
         }
     }
 
-    let place = app
-        .db
-        .run(|c| destination(c))
-        .await?
-        .ok_or_else(|| bad_request("hoard has no storage folder yet; add one in its Settings"))?;
+    let place = export_folders::target(&app, meta.folder.as_deref()).await?;
     let (root, folder) = ops::prepare_place(&app, &place).await?;
     let dir = paths::folder_dir(&root, &folder);
 

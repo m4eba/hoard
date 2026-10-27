@@ -139,6 +139,63 @@ fn connect_search_open_upload_and_disconnect() {
     assert_eq!(s.json("/api/fiffly/connections")["connections"], json!([]));
 }
 
+fn save(s: &Server, token: &str, title: &str, folder: Option<&str>) -> reqwest::blocking::Response {
+    let mut meta = json!({
+        "kind": "clip",
+        "title": title,
+        "files": [{ "field": "f0", "variant": "", "format": "mp4", "width": 160, "height": 90 }],
+    });
+    if let Some(f) = folder {
+        meta["folder"] = f.into();
+    }
+    let form = multipart::Form::new()
+        .part("meta", multipart::Part::text(meta.to_string()).mime_str("application/json").unwrap())
+        .part("f0", multipart::Part::bytes(std::fs::read(s.lib.join("blue.mp4")).unwrap()).file_name("f0.mp4"));
+    s.request(Method::POST, "/api/publish/upload").bearer_auth(token).multipart(form).send().unwrap()
+}
+
+#[test]
+fn exports_save_into_a_picked_folder() {
+    let s = Server::start();
+    s.processed(3);
+    let m: Value = s.get("/.well-known/media-publish.json").json().unwrap();
+    let field = m["uploadForm"].as_array().unwrap().iter().find(|f| f["type"] == "folder").unwrap().clone();
+    assert_eq!(field["name"], "folder");
+    let list = field["list"].as_str().unwrap();
+
+    assert_eq!(s.get(list).status(), StatusCode::UNAUTHORIZED);
+    let token = connect(&s, "media:read media:write");
+    let folder = |query: &str| bearer(&s, &token, &format!("{list}{query}"));
+
+    // The default — the download folder here — with what is directly inside.
+    let root: Value = folder("").json().unwrap();
+    assert_eq!(root["path"].as_array().unwrap().len(), 1, "paths start at the storage folder");
+    assert_eq!(root["parent"], Value::Null);
+    assert_eq!(root["children"], json!([{ "id": format!("{}:clips", s.root_id()), "name": "clips", "hasChildren": false }]));
+    let clips: Value = folder(&format!("?id={}:clips", s.root_id())).json().unwrap();
+    assert_eq!(clips["parent"], root["id"]);
+    assert_eq!(clips["path"][1], "clips");
+    assert_eq!(folder(&format!("?id={}:gone", s.root_id())).status(), StatusCode::NOT_FOUND);
+
+    // Search: by path from the top, or by name anywhere.
+    let top = format!("{}/", root["path"][0].as_str().unwrap());
+    let found: Value = folder(&format!("?q={}", top.to_uppercase())).json().unwrap();
+    assert_eq!(found["results"], json!([{ "id": clips["id"], "path": clips["path"] }]));
+    assert_eq!(folder("?q=lip").json::<Value>().unwrap()["results"][0]["id"], clips["id"]);
+    assert_eq!(folder("?q=nothing").json::<Value>().unwrap()["results"], json!([]));
+
+    let res = save(&s, &token, "into clips", clips["id"].as_str());
+    assert_eq!(res.status(), StatusCode::OK, "{}", res.text().unwrap_or_default());
+    let id = res.json::<Value>().unwrap()["slug"].as_str().unwrap().to_string();
+    assert_eq!(s.json(&format!("/api/media/{id}"))["folder"], "clips");
+    assert!(s.lib.join("clips/into clips.mp4").is_file());
+
+    let res = save(&s, &token, "nowhere", Some(&format!("{}:gone", s.root_id())));
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    assert!(!s.lib.join("gone").exists());
+    assert_eq!(save(&s, &token, "nowhere", Some("../etc")).status(), StatusCode::BAD_REQUEST);
+}
+
 #[test]
 fn signed_links_open_media_without_connecting() {
     let s = Server::start();

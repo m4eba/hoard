@@ -2,6 +2,7 @@
 //! what fiffly calls (which carries its own token) sits behind the password
 //! check when one is configured.
 
+mod export_folders;
 mod fiffly;
 mod imports;
 pub mod library;

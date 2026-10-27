@@ -92,7 +92,7 @@ export function FifflySection() {
         </p>
 
         <div>
-          <span className="mb-1 block text-xs text-muted">Folder for exports saved from fiffly</span>
+          <span className="mb-1 block text-xs text-muted">Default folder for exports saved from fiffly (the save dialog can pick another)</span>
           <FolderInput
             value={settings?.fifflyPlace ?? null}
             allowEmpty

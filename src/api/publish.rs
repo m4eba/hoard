@@ -15,7 +15,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{media::serve, upload};
+use super::{export_folders, media::serve, upload};
 use crate::{
     error::{ApiResult, AppError, not_found},
     media, process,
@@ -34,6 +34,7 @@ pub fn router() -> Router<App> {
         .route("/api/publish/search", get(search))
         .route("/api/publish/media/{slug}", get(media_post))
         .route("/api/publish/tags", get(tags))
+        .route("/api/publish/folders", get(export_folders::folders))
         .route("/api/publish/upload", post(upload::upload).layer(DefaultBodyLimit::disable()))
         .route("/api/publish/s/{id}/{exp}/{sig}/file/{name}", get(signed_file))
         .route("/api/publish/s/{id}/{exp}/{sig}/thumb", get(signed_thumb))
@@ -102,6 +103,7 @@ async fn manifest() -> Json<Value> {
         "uploadForm": [
             { "type": "text", "name": "title", "label": "Title", "maxLength": 200 },
             { "type": "tags", "name": "tags", "label": "Tags", "suggest": "/api/publish/tags", "max": upload::MAX_TAGS },
+            { "type": "folder", "name": "folder", "label": "Folder", "list": "/api/publish/folders" },
         ],
         "mediaUrlTemplate": "/m/{slug}",
     }))
