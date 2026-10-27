@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use crate::{
     db,
-    error::{ApiResult, bad_request, not_found},
+    error::{ApiResult, bad_request, conflict, not_found},
     ops::Place,
     publish,
     state::App,
@@ -66,8 +66,10 @@ fn view(c: &Connection, place: &Place) -> anyhow::Result<Option<Value>> {
     let Some(root) = root else { return Ok(None) };
     let prefix = if place.folder.is_empty() { String::new() } else { format!("{}/", place.folder) };
     let mut stmt = c.prepare(
+        // `path/` < anything below it < `path0` ('0' follows '/'): a range on
+        // the primary key, not a scan per child
         "SELECT f.path, EXISTS (SELECT 1 FROM folders c WHERE c.root_id = f.root_id
-                                AND substr(c.path, 1, length(f.path) + 1) = f.path || '/')
+                                AND c.path > f.path || '/' AND c.path < f.path || '0')
          FROM folders f
          WHERE f.root_id = ?1 AND f.path <> '' AND substr(f.path, 1, length(?2)) = ?2
            AND instr(substr(f.path, length(?2) + 1), '/') = 0
@@ -127,11 +129,54 @@ pub async fn folders(State(app): State<App>, headers: HeaderMap, Query(p): Query
         let results = app.db.run(move |c| search(c, &q)).await?;
         return Ok(Json(json!({ "results": results })));
     }
-    let place = match p.id.filter(|id| !id.is_empty()) {
-        Some(id) => parse_folder_id(&id).ok_or_else(|| not_found("folder"))?,
-        None => app.db.run(|c| destination(c)).await?.ok_or_else(no_storage)?,
-    };
-    Ok(Json(app.db.run(move |c| view(c, &place)).await?.ok_or_else(|| not_found("folder"))?))
+    if let Some(id) = p.id.filter(|id| !id.is_empty()) {
+        let place = parse_folder_id(&id).ok_or_else(|| not_found("folder"))?;
+        return Ok(Json(app.db.run(move |c| view(c, &place)).await?.ok_or_else(|| not_found("folder"))?));
+    }
+    // The default may have been moved or deleted since it was set; then the
+    // top of its storage folder, so the picker always has somewhere to start.
+    let found = app
+        .db
+        .run(|c| {
+            let Some(place) = destination(c)? else { return Ok(None) };
+            let top = Place { root_id: place.root_id, folder: String::new() };
+            Ok(match view(c, &place)? {
+                Some(v) => Some(v),
+                None => view(c, &top)?,
+            })
+        })
+        .await?;
+    Ok(Json(found.ok_or_else(no_storage)?))
+}
+
+/// Holds a storage folder for an upload while it writes there, so no folder
+/// move starts underneath it; let go when dropped.
+pub struct Claim {
+    app: App,
+    root_id: i64,
+}
+
+impl Claim {
+    pub fn new(app: &App, root_id: i64) -> Result<Self, crate::error::Reject> {
+        let busy = app.folder_moves.lock().unwrap();
+        if busy.contains(&root_id) {
+            return Err(conflict("that storage folder is being reorganised; try again in a moment"));
+        }
+        *app.uploads.lock().unwrap().entry(root_id).or_default() += 1;
+        Ok(Self { app: app.clone(), root_id })
+    }
+}
+
+impl Drop for Claim {
+    fn drop(&mut self) {
+        let mut uploads = self.app.uploads.lock().unwrap();
+        if let Some(n) = uploads.get_mut(&self.root_id) {
+            *n -= 1;
+            if *n == 0 {
+                uploads.remove(&self.root_id);
+            }
+        }
+    }
 }
 
 /// Where an upload goes: the folder picked in fiffly, which must still be in

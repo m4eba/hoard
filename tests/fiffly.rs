@@ -190,6 +190,34 @@ fn exports_save_into_a_picked_folder() {
     assert_eq!(s.json(&format!("/api/media/{id}"))["folder"], "clips");
     assert!(s.lib.join("clips/into clips.mp4").is_file());
 
+    // Deeper trees: whether a folder has folders inside, a parent two levels
+    // down, and a sibling whose name only starts the same.
+    let r = s.root_id();
+    for path in ["clips/a/b", "clips2"] {
+        s.post("/api/folders", json!({ "rootId": r, "path": path }));
+    }
+    let root: Value = folder("").json().unwrap();
+    let kids: Vec<(Value, Value)> =
+        root["children"].as_array().unwrap().iter().map(|c| (c["name"].clone(), c["hasChildren"].clone())).collect();
+    assert_eq!(kids, [(json!("clips"), json!(true)), (json!("clips2"), json!(false))]);
+    let a: Value = folder(&format!("?id={r}:clips/a")).json().unwrap();
+    assert_eq!(a["parent"], json!(format!("{r}:clips")));
+    assert_eq!(a["children"], json!([{ "id": format!("{r}:clips/a/b"), "name": "b", "hasChildren": false }]));
+    let below: Vec<Value> = folder(&format!("?q={top}clips/")).json::<Value>().unwrap()["results"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| h["id"].clone())
+        .collect();
+    assert_eq!(below, [json!(format!("{r}:clips/a")), json!(format!("{r}:clips/a/b"))], "not clips2, nearest first");
+
+    // A default folder deleted since it was set: the top of its storage folder.
+    s.send(Method::PUT, "/api/settings", json!({ "fifflyPlace": { "rootId": r, "folder": "clips2" } }));
+    assert_eq!(folder("").json::<Value>().unwrap()["id"], json!(format!("{r}:clips2")));
+    let gone = s.request(Method::DELETE, &format!("/api/folders?rootId={r}&path=clips2")).send().unwrap();
+    assert_eq!(gone.status(), StatusCode::OK);
+    assert_eq!(folder("").json::<Value>().unwrap()["id"], root["id"]);
+
     let res = save(&s, &token, "nowhere", Some(&format!("{}:gone", s.root_id())));
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
     assert!(!s.lib.join("gone").exists());

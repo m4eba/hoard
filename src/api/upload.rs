@@ -99,6 +99,7 @@ pub async fn upload(State(app): State<App>, headers: HeaderMap, mut form: Multip
     }
 
     let place = export_folders::target(&app, meta.folder.as_deref()).await?;
+    let _claim = export_folders::Claim::new(&app, place.root_id)?;
     let (root, folder) = ops::prepare_place(&app, &place).await?;
     let dir = paths::folder_dir(&root, &folder);
 
@@ -175,6 +176,9 @@ pub async fn upload(State(app): State<App>, headers: HeaderMap, mut form: Multip
         .db
         .run(move |c| {
             let tx = c.transaction()?;
+            // deleted in the library while this upload was on its way: the
+            // files are in it on disk, so it is back
+            media::ensure_folder(&tx, root_id, &folder)?;
             let now = db::now();
             let mut ids = Vec::new();
             for (name, title, kind, size) in &rows {
