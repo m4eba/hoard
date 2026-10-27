@@ -39,7 +39,7 @@ directory.
 - **fiffly integration.** Open any video or image in the
   [fiffly](https://fiffly.com) browser editor from the viewer or a tile's ⋯
   menu, browse the library from inside fiffly, and save its exports back into
-  a folder.
+  any folder, picked in fiffly's save dialog.
 - **Optional password.** No accounts; set a password and every request needs
   a session.
 
@@ -127,6 +127,14 @@ library from fiffly and save exports into it, use **Settings → fiffly → Add
 hoard to fiffly**: fiffly asks you to confirm, then to connect, which brings
 you to a consent page in hoard. Connections are listed, and can be revoked, in
 Settings.
+
+fiffly's save dialog has a **Folder** picker: it starts at the export folder
+set in **Settings → fiffly** (else the download folder), lists the folders
+inside it, goes up, and searches by path. The upload form declares it as a
+`folder` field whose `list` endpoint (`/api/publish/folders`) answers one
+folder at a time — `GET` for the default, `?id=` for another, each
+`{ id, path, parent, children }` — or `?q=` with up to 20 matches; the
+picked `id` comes back in the upload's `meta.folder`.
 
 Because fiffly runs in your browser, it reaches hoard at the address the
 browser uses. fiffly accepts `https://` sites, or `http://` only on this

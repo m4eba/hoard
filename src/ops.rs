@@ -182,6 +182,10 @@ pub async fn start_folder_move(app: &App, root_id: i64, folder: String, to: Plac
         if [root_id, to.root_id].iter().any(|r| scanning.contains(r) || busy.contains(r)) {
             return Err(conflict("that storage folder is being scanned or reorganised; try again in a moment").into());
         }
+        let uploads = app.uploads.lock().unwrap();
+        if [root_id, to.root_id].iter().any(|r| uploads.contains_key(r)) {
+            return Err(conflict("an export from fiffly is being saved there; try again in a moment").into());
+        }
         if ids.iter().any(|id| moving.contains(id)) {
             return Err(conflict("files in this folder are being moved right now").into());
         }

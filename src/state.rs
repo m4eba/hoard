@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
 };
 
@@ -38,6 +38,10 @@ pub struct AppState {
     /// Storage folders a folder is being moved out of or into; they are not
     /// scanned meanwhile, or a half-moved tree would look deleted.
     pub folder_moves: Mutex<HashSet<i64>>,
+    /// Storage folders fiffly is saving an export into, with how many
+    /// uploads; a folder move waits for them, or would carry their half-written
+    /// files away.
+    pub uploads: Mutex<HashMap<i64, usize>>,
 }
 
 pub type App = Arc<AppState>;
@@ -57,6 +61,7 @@ impl AppState {
             storyboards: Default::default(),
             moving: Default::default(),
             folder_moves: Default::default(),
+            uploads: Default::default(),
             events,
             cfg,
             db,
