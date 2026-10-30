@@ -13,7 +13,6 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tokio::io::AsyncWriteExt;
 
 use super::export_folders;
 use crate::{
@@ -119,16 +118,16 @@ pub async fn upload(State(app): State<App>, headers: HeaderMap, mut form: Multip
             }
             let tmp = dir.join(format!(".fiffly-{}.hoard-upload", publish::random_hex(8)));
             parts[i] = Some((tmp.clone(), 0));
-            let mut file = tokio::fs::File::create(&tmp).await?;
+            let mut file = paths::UploadFile::create(&tmp).await?;
             let mut size = 0u64;
             while let Some(chunk) = field.chunk().await.map_err(bad)? {
                 size += chunk.len() as u64;
                 if size > MAX_FILE_BYTES {
                     return Err(too_large().into());
                 }
-                file.write_all(&chunk).await?;
+                file.write(&chunk).await?;
             }
-            file.sync_all().await?;
+            file.finish().await?;
             parts[i] = Some((tmp, size as i64));
         }
         if let Some(f) = meta.files.iter().zip(&parts).find(|(_, p)| p.is_none()) {

@@ -116,6 +116,41 @@ pub fn unique_path(dir: &Path, filename: &str) -> PathBuf {
         .expect("an unused name exists")
 }
 
+/// How much of an upload may sit in memory before it is flushed to disk.
+const FLUSH_EVERY: u64 = 32 << 20;
+
+/// A file an upload streams into, flushed to disk as it grows.
+///
+/// Left alone, the kernel holds gigabytes of an upload in memory, then blocks
+/// the writer for as long as a slow disk takes to catch up. Nothing reads the
+/// connection meanwhile, and a proxy drops it as dead (HTTP/3 after 30s idle).
+/// Flushing as it goes trades that one long pause for many short ones.
+pub struct UploadFile {
+    file: tokio::fs::File,
+    unflushed: u64,
+}
+
+impl UploadFile {
+    pub async fn create(path: &Path) -> io::Result<Self> {
+        Ok(Self { file: tokio::fs::File::create(path).await?, unflushed: 0 })
+    }
+
+    pub async fn write(&mut self, chunk: &[u8]) -> io::Result<()> {
+        use tokio::io::AsyncWriteExt;
+        self.file.write_all(chunk).await?;
+        self.unflushed += chunk.len() as u64;
+        if self.unflushed >= FLUSH_EVERY {
+            self.file.sync_data().await?;
+            self.unflushed = 0;
+        }
+        Ok(())
+    }
+
+    pub async fn finish(self) -> io::Result<()> {
+        self.file.sync_all().await
+    }
+}
+
 /// Files next to a media file that belong to it: subtitles, `.info.json`,
 /// `.nfo` — anything sharing its stem that is not itself media.
 pub fn companions(file: &Path) -> Vec<PathBuf> {
@@ -347,6 +382,20 @@ mod tests {
 
         assert!(move_dir(&src, &dst, |_, _| {}).is_err(), "never merges into an existing folder");
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn uploads_survive_flushing_midway() {
+        let path = std::env::temp_dir().join(format!("hoard-upload-test-{}", std::process::id()));
+        let chunk = vec![7u8; (FLUSH_EVERY / 3 + 1) as usize];
+        let mut file = UploadFile::create(&path).await.unwrap();
+        for _ in 0..4 {
+            file.write(&chunk).await.unwrap();
+        }
+        assert!(file.unflushed < FLUSH_EVERY, "flushed once past the threshold");
+        file.finish().await.unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().len(), 4 * chunk.len() as u64);
+        fs::remove_file(&path).unwrap();
     }
 
     #[test]

@@ -11,7 +11,6 @@ use axum::{
 use futures_util::TryStreamExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use tokio::io::AsyncWriteExt;
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
@@ -248,12 +247,12 @@ pub async fn upload(State(app): State<App>, Query(p): Query<UploadParams>, body:
     let tmp = dir.join(format!(".{filename}.hoard-upload-{}", rand::random::<u32>()));
 
     let written = async {
-        let mut file = tokio::fs::File::create(&tmp).await?;
+        let mut file = paths::UploadFile::create(&tmp).await?;
         let mut stream = body.into_data_stream();
         while let Some(chunk) = stream.try_next().await? {
-            file.write_all(&chunk).await?;
+            file.write(&chunk).await?;
         }
-        file.sync_all().await?;
+        file.finish().await?;
         anyhow::Ok(())
     }
     .await;
